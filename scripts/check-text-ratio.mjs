@@ -34,11 +34,17 @@ const ALT_FLOOR_CHARS = 80;
 const RASTER_HEAVY_IMG_COUNT = 1; // 섹션에 img 1개 + text 10자 미만 = "이미지만" 섹션 의심
 const RASTER_HEAVY_TEXT_MIN = 10;
 
-function walk(dir, out = []) {
-  for (const entry of readdirSync(dir)) {
-    const full = join(dir, entry);
-    const st = statSync(full);
-    if (st.isDirectory()) walk(full, out);
+function walk(target, out = []) {
+  const st = statSync(target);
+  if (st.isFile()) {
+    if (extname(target) === ".tsx" || extname(target) === ".jsx") out.push(target);
+    return out;
+  }
+  // directory
+  for (const entry of readdirSync(target)) {
+    const full = join(target, entry);
+    const st2 = statSync(full);
+    if (st2.isDirectory()) walk(full, out);
     else if (extname(full) === ".tsx" || extname(full) === ".jsx") out.push(full);
   }
   return out;
@@ -137,17 +143,22 @@ function analyzeFile(file) {
 }
 
 function main() {
-  const target = process.argv[2];
-  if (!target) {
-    console.error("usage: check-text-ratio.mjs <section-dir>");
+  // 여러 target (파일 또는 디렉토리) 수용 — 섹션 격리용
+  const targets = process.argv.slice(2);
+  if (targets.length === 0) {
+    console.error("usage: check-text-ratio.mjs <path> [<path> ...]");
+    console.error("  path: 파일 또는 디렉토리. 여러 개 허용");
     process.exit(2);
   }
 
-  const files = walk(target);
+  const files = [];
+  for (const t of targets) walk(t, files);
   if (files.length === 0) {
-    console.error(`no .tsx/.jsx under ${target}`);
+    console.error(`no .tsx/.jsx in: ${targets.join(", ")}`);
     process.exit(2);
   }
+  // 리포트에는 첫 target 을 대표로 (여러 개면 "multi" 로 표기)
+  const target = targets.length === 1 ? targets[0] : "multi";
 
   let totalText = 0;
   let totalAlt = 0;

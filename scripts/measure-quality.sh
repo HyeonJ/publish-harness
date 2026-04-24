@@ -12,13 +12,19 @@
 # G2(치수 computed style), G3(asset naturalWidth) 는 제거됨.
 #
 # Usage:
-#   bash scripts/measure-quality.sh <섹션명> <섹션 디렉토리> [--baseline <path>] [--viewport <v>]
-#   예: bash scripts/measure-quality.sh home-hero src/components/sections/home/HomeHero
-#       bash scripts/measure-quality.sh home-hero src/components/sections/home/HomeHero --viewport mobile
+#   bash scripts/measure-quality.sh <섹션명> <섹션 디렉토리> [options]
+#   예 (디렉토리 전체):
+#     bash scripts/measure-quality.sh home-hero src/components/sections/home/HomeHero
+#   예 (특정 파일만 — 섹션 격리):
+#     bash scripts/measure-quality.sh AllShowcase src/routes --files "src/routes/AllShowcase.tsx"
+#     bash scripts/measure-quality.sh Button src/components/ui --files "src/components/ui/Button.tsx src/routes/ButtonPreview.tsx"
 #
-# G1 baseline 경로 기본값:
-#   baselines/<섹션명>/desktop.png  (--baseline 미지정 시)
-#   --viewport 로 tablet/mobile 선택 가능
+# 옵션:
+#   --files "p1 p2 ..."  G4/G5/G6/G8 을 디렉토리 전체가 아닌 **지정 파일에만** 실행.
+#                        공유 디렉토리에서 타 섹션 이슈가 현재 섹션을 차단하는 것 방지.
+#                        미지정 시 <섹션 디렉토리> 전체 스캔 (기본값 · 이전 동작).
+#   --baseline <path>    G1 baseline PNG 경로 (기본: baselines/<섹션명>/<viewport>.png)
+#   --viewport <v>       desktop | tablet | mobile (기본: desktop)
 #
 # 종료 코드:
 #   0: G4/G5/G6/G8 전부 PASS (G1/G7 은 환경 미비 시 SKIP 허용)
@@ -37,12 +43,14 @@ section=""
 dir=""
 BASELINE=""
 VIEWPORT="desktop"
+FILES=""
 
 while [ $# -gt 0 ]; do
   case "$1" in
     --baseline) BASELINE="$2"; shift 2 ;;
     --viewport) VIEWPORT="$2"; shift 2 ;;
-    -h|--help) sed -n '2,40p' "$0"; exit 0 ;;
+    --files) FILES="$2"; shift 2 ;;
+    -h|--help) sed -n '2,45p' "$0"; exit 0 ;;
     -*) echo "ERROR: unknown option $1" >&2; exit 2 ;;
     *)
       if [ -z "$section" ]; then section="$1"
@@ -52,6 +60,15 @@ while [ $# -gt 0 ]; do
       shift ;;
   esac
 done
+
+# --files 지정 시 타겟 셋 = 파일 리스트, 아니면 디렉토리 전체
+if [ -n "$FILES" ]; then
+  TARGET_SET="$FILES"
+  TARGET_SCOPE="files"
+else
+  TARGET_SET="$dir"
+  TARGET_SCOPE="dir"
+fi
 
 if [ -z "$section" ] || [ -z "$dir" ]; then
   echo "usage: measure-quality.sh <section-name> <section-dir> [--baseline <path>] [--viewport <v>]" >&2
@@ -119,8 +136,9 @@ esac
 
 # ---------- G4 토큰 사용 (hex literal + non-token arbitrary) ----------
 echo ""
-echo "[G4] 디자인 토큰 사용 (hex literal 차단)"
-if node "${SCRIPT_DIR}/check-token-usage.mjs" "$dir" 2>/tmp/g4.err; then
+echo "[G4] 디자인 토큰 사용 (hex literal 차단, scope=${TARGET_SCOPE})"
+# shellcheck disable=SC2086
+if node "${SCRIPT_DIR}/check-token-usage.mjs" $TARGET_SET 2>/tmp/g4.err; then
   G4_STATUS="PASS"
   echo "  ✓ G4 PASS"
 else
@@ -135,8 +153,9 @@ fi
 # eslint 가 "Invalid option" / "Cannot find" 등 스크립트 레벨 에러로 종료하면
 # 실제 lint violation 과 구분해 SCRIPT_ERROR 로 표기 (G5 FAIL 과 다른 의미).
 echo ""
-echo "[G5] 시맨틱 HTML (eslint jsx-a11y)"
-if npx eslint "$dir" >/tmp/g5.log 2>&1; then
+echo "[G5] 시맨틱 HTML (eslint jsx-a11y, scope=${TARGET_SCOPE})"
+# shellcheck disable=SC2086
+if npx eslint $TARGET_SET >/tmp/g5.log 2>&1; then
   G5_STATUS="PASS"
   echo "  ✓ G5 PASS"
 else
@@ -156,8 +175,9 @@ fi
 
 # ---------- G6/G8 텍스트/이미지 비율 + i18n ----------
 echo ""
-echo "[G6/G8] 텍스트:이미지 비율 + i18n 가능성"
-G68_JSON=$(node "${SCRIPT_DIR}/check-text-ratio.mjs" "$dir" 2>/tmp/g68.err || true)
+echo "[G6/G8] 텍스트:이미지 비율 + i18n 가능성 (scope=${TARGET_SCOPE})"
+# shellcheck disable=SC2086
+G68_JSON=$(node "${SCRIPT_DIR}/check-text-ratio.mjs" $TARGET_SET 2>/tmp/g68.err || true)
 if echo "$G68_JSON" | grep -q '"g6":[[:space:]]*"PASS"'; then
   G6_STATUS="PASS"
 else

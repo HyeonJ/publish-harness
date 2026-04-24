@@ -261,11 +261,34 @@ node scripts/check-visual-regression.mjs \
 
 #### 4.2 게이트 실행
 
+기본 (섹션이 독립 디렉토리를 가질 때):
 ```bash
 bash scripts/measure-quality.sh <section_name> <section-dir>
-# 반응형 검증 시 viewport 바꿔 가며 재실행:
+```
+
+**섹션 격리 (권장)** — 공유 디렉토리(예: `src/routes`, `src/components/ui`)에서 타 섹션이 이미 존재하면 `--files` 로 이번 섹션 파일만 판정하도록 격리:
+
+```bash
+# 단일 파일 섹션
+bash scripts/measure-quality.sh Button src/components/ui \
+  --files "src/components/ui/Button.tsx"
+
+# 컴포넌트 + preview route 함께 판정
+bash scripts/measure-quality.sh Button src/components/ui \
+  --files "src/components/ui/Button.tsx src/routes/ButtonPreview.tsx"
+```
+
+반응형 viewport:
+```bash
 bash scripts/measure-quality.sh <section_name> <section-dir> --viewport mobile
 ```
+
+**`--files` 언제 써야 하나**:
+- 섹션 디렉토리가 다른 섹션 파일을 포함 (예: Pill 이 `src/components/ui` 에 있는데 Card/Stamp 도 같은 폴더)
+- 섹션이 여러 파일에 걸침 (component 파일 + preview route 파일)
+- 공유 디렉토리의 다른 섹션이 pre-existing 이슈를 가질 수 있을 때
+
+생략 시: 디렉토리 전체 스캔 (이전 동작 유지, backwards compatible).
 
 게이트:
 - **G1** visual regression (`check-visual-regression.mjs`) — **선택**, 환경 미비 / baseline 없음은 SKIP

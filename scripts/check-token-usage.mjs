@@ -45,11 +45,17 @@ const ALLOWED_COLOR_LITERALS = new Set([
   "#000", "#000000",
 ]);
 
-function walk(dir, out = []) {
-  for (const entry of readdirSync(dir)) {
-    const full = join(dir, entry);
-    const st = statSync(full);
-    if (st.isDirectory()) walk(full, out);
+function walk(target, out = []) {
+  const st = statSync(target);
+  if (st.isFile()) {
+    if (extname(target) === ".tsx" || extname(target) === ".jsx") out.push(target);
+    return out;
+  }
+  // directory
+  for (const entry of readdirSync(target)) {
+    const full = join(target, entry);
+    const st2 = statSync(full);
+    if (st2.isDirectory()) walk(full, out);
     else if (extname(full) === ".tsx" || extname(full) === ".jsx") out.push(full);
   }
   return out;
@@ -196,30 +202,36 @@ function runDiffMode(target, oldCssPath) {
 }
 
 function main() {
-  // args 파싱
+  // args 파싱: 여러 target (파일 또는 디렉토리 혼합) + --diff 지원
   const args = process.argv.slice(2);
-  let target = null;
+  const targets = [];
   let diffOld = null;
   for (let i = 0; i < args.length; i++) {
     if (args[i] === "--diff") {
       diffOld = args[++i];
-    } else if (!target) {
-      target = args[i];
+    } else {
+      targets.push(args[i]);
     }
   }
-  if (!target) {
-    console.error("usage: check-token-usage.mjs <section-dir> [--diff <old-tokens.css>]");
+  if (targets.length === 0) {
+    console.error("usage: check-token-usage.mjs <path> [<path> ...] [--diff <old-tokens.css>]");
+    console.error("  path: 파일 또는 디렉토리. 여러 개 허용 (섹션 격리용)");
     process.exit(2);
   }
 
   if (diffOld) {
-    runDiffMode(target, diffOld);
+    if (targets.length > 1) {
+      console.error("ERROR: --diff 모드는 target 1개만 지원");
+      process.exit(2);
+    }
+    runDiffMode(targets[0], diffOld);
     return;
   }
 
-  const files = walk(target);
+  const files = [];
+  for (const t of targets) walk(t, files);
   if (files.length === 0) {
-    console.error(`no .tsx/.jsx under ${target}`);
+    console.error(`no .tsx/.jsx in: ${targets.join(", ")}`);
     process.exit(2);
   }
 
