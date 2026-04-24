@@ -386,19 +386,27 @@ node scripts/check-visual-regression.mjs \
 
 ## 로드맵
 
+지원 조합 매트릭스: [`docs/template-support-matrix.md`](./docs/template-support-matrix.md)
+
 ### 완료
-- [x] figma 모드 (기존 figma-react-lite 계승)
-- [x] spec 모드 (핸드오프 번들 임포트)
+- [x] `figma × vite-react-ts` (기존 figma-react-lite 계승)
+- [x] `spec × vite-react-ts` (핸드오프 번들 임포트)
 - [x] **G1 visual regression** (선택적 실행, Playwright + pixelmatch)
 - [x] **Feedback loop** — 3단계 자동 재시도 + 9개 실패 카테고리 분류
 - [x] 첫 스모크 (Chapter BrandMark, spec 모드) 통과 + G5 eslint 버그 발견·수정
 
-### 예정
-- [ ] Next.js 템플릿 (`templates/next-app-router/`)
-- [ ] React Native + Expo 템플릿 (`templates/rn-expo/`)
-- [ ] 정적 HTML 템플릿 (`templates/html-static/`)
+### Stage 2 (진행 예정)
+- [ ] **`figma × html-static`** (`templates/html-static/`) — Figma 디자인을 정적 랜딩/마케팅 HTML 로 변환
 - [ ] G9 brand-guardrails 자동 게이트 (spec 모드에서 Forbidden Patterns 위반 검출)
+
+### Stage 3+ (실제 use case 기반)
+- [ ] `figma × server-side templates` (Thymeleaf · JSP · Blade · Django template — 실제 사용 환경 나올 때 결정)
+- [ ] `{figma, spec} × next-app-router` (`templates/next-app-router/`)
+- [ ] `{figma, spec} × rn-expo` (`templates/rn-expo/`)
 - [ ] Storybook 소스 모드 (`--mode storybook`)
+
+### 명시적 제외
+- `spec × html-static` — 의미 mismatch (`components-spec.md` 의 Props/Variants/States 를 static HTML 이 표현 못함). 상세: [매트릭스 §제외](./docs/template-support-matrix.md#제외--spec--html-static-이-mismatch-인-이유).
 
 ---
 
