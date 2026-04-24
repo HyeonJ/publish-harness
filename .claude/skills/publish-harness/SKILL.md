@@ -173,7 +173,10 @@ Agent({
   mode: figma | spec                // 모드 판별 (figma = Figma REST 쿼리, spec = 텍스트 스펙)
   section_name: {section}
   route: {route}                    // 페이지 라우트 (컴포넌트만 구현하는 경우 빈 문자열)
-  retry_count: 0
+  retry_count: 0                    // 0=첫 호출, 1=가이드 재시도, 2=마지막 기회
+  previous_failures: []             // retry_count >= 1 에서만 채움. §feedback-loop 참조.
+    형식: [{ category, gate, file, line?, message, attempt }]
+    category enum: TOKEN_DRIFT | A11Y | TEXT_RASTER | I18N_MISSING | IMPORT_MISSING | SYNTAX_ERROR | LIGHTHOUSE | UNKNOWN
   required_imports: (선택) Phase 2 DS 인벤토리 기반 공통 컴포넌트 목록
     예: [{ name: "Wordmark", path: "src/components/ui/Wordmark" },
          { name: "Button",   path: "src/components/ui/Button", variant: "default" }]
@@ -213,13 +216,40 @@ Agent({
 3. `PROGRESS.md` 해당 섹션/컴포넌트 체크
 4. 다음 단위로 즉시 진행
 
-**FAIL (게이트 미통과, retry_count=0)**:
-- 워커는 이미 1회 자체 재시도한 후 반환한 것이므로, 오케스트레이터가 **Opus 승격** 판단
-- 사용자에게 **1회만** 보고 + 선택지 제시:
-  - (a) Opus로 재시도 (추천) — 워커를 `model: opus`로 재스폰
-  - (b) 수동 리팩터 (사용자가 직접)
-  - (c) 섹션 스킵 (다음으로 넘어감, PROGRESS.md 주석)
-  - (d) 섹션 재분할 (서브섹션으로 쪼개기)
+**FAIL 처리** (feedback loop — 자동 재시도 최대 3회):
+
+```
+워커 retry_count=0 FAIL
+  ↓ (자동)
+워커 retry_count=1 재스폰 + previous_failures 전달
+  ↓ FAIL
+워커 retry_count=2 재스폰 + 누적 previous_failures + (선택) Opus 승격
+  ↓ FAIL (needs_human: true)
+사용자 개입 — 선택지 제시
+```
+
+단계별 상세:
+
+1. **retry_count=0 FAIL → retry_count=1 자동 재스폰**
+   - 사용자 보고 없이 자동 진행 (로그만 남김)
+   - 새 Agent 호출: 동일 section-worker, `retry_count: 1`, `previous_failures: <워커가 반환한 failures 배열>`
+   - 같은 모델 (sonnet) 유지
+
+2. **retry_count=1 FAIL → retry_count=2 자동 재스폰**
+   - 누적 failures 배열 (attempt 0 + 1) 을 previous_failures 로 전달
+   - 복잡 섹션 판단 시 `model: opus` 승격 고려 (failures 개수 5+ 또는 카테고리 3종+ 혼재)
+
+3. **retry_count=2 FAIL (needs_human: true) → 사용자 개입**
+   - 누적 failures 요약 + 선택지 제시:
+     - (a) 현 상태에서 다시 Opus 로 재시도 (drift 심하면)
+     - (b) 수동 리팩터 (사용자가 직접)
+     - (c) 섹션 스킵 (다음으로 넘어감, PROGRESS.md 주석)
+     - (d) 섹션 재분할 (서브섹션으로 쪼개기)
+
+**안티-루프 가드** (중요):
+- 각 재스폰 전에 previous_failures 의 카테고리 분포 체크
+- **retry_count=1 결과에서 동일 category 가 retry_count=0 과 똑같이 등장** 하면 워커가 피드백을 무시한 것 → retry_count=2 에서 model: opus 강제 승격
+- **retry_count=2 에서도 동일 category 반복** 이면 "구조 자체 문제" 로 간주 → 재분할 선택지를 상위에 노출
 
 ### 섹션 진행 순서
 
@@ -278,9 +308,9 @@ git commit -m "feat(section): {page}-{section} 구현 (G4-G8 PASS, opus-assist)"
 ## 멈춤 지점 (사용자 개입 2곳만)
 
 1. **Phase 2 분해 승인** — 섹션 목록 제시 후 "이대로 진행?"
-2. **섹션 2회 FAIL** — Opus 승격 / 수동 / 스킵 / 재분할 선택
+2. **섹션 retry_count=2 FAIL** — 3회 자동 재시도 후에도 FAIL 이면 사용자 개입 (Opus / 수동 / 스킵 / 재분할)
 
-그 외는 모두 자율 진행.
+그 외는 모두 자율 진행 (retry_count 0→1→2 자동 재스폰 포함).
 
 ## 데이터 전달
 

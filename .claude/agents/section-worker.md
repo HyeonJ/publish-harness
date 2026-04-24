@@ -23,8 +23,11 @@ model: sonnet
 - `mode`: `figma` | `spec` — 모드 판별 (없으면 `docs/project-context.md` 에서 조회)
 - `section_name`: 식별자 (`home-hero`, `Button`, `BrandMark` 등)
 - `route`: URL 경로 (페이지 섹션이면 `/home` 등, 순수 컴포넌트만 구현이면 빈 문자열)
-- `retry_count`: 이번이 몇 번째 호출인지 (0=첫 시도, 1=재시도)
-- `previous_failure` (재시도 시): 지난번 실패 원인
+- `retry_count`: 이번이 몇 번째 호출인지 (0=첫 호출, 1=가이드 재시도, 2=마지막 기회)
+  - 의미 변경됨 (이전 1회 자체 재시도 모델 대체) — §feedback-loop 참조
+- `previous_failures` (선택, retry_count ≥ 1 에서 제공): 지난 호출(들)에서 나온 구조화 실패 리스트
+  - 형식: `[{ category, gate, file, line?, message, attempt }]`
+  - 워커는 이를 반드시 읽어 **동일 원인 반복 금지**. 각 failure 의 `category` 별 가이드(§retry-strategies)에 따라 접근 변경
 - `required_imports` (선택): 오케가 Phase 2 에서 식별한 공통 컴포넌트 목록.
   형식: `[{ name, path, variant? }]`. 명시된 컴포넌트는 **반드시 import해서 사용**.
   자체 인라인 재구현 금지 (DRY 위반 → 사후 리팩터 발생). 명시 없으면 자율 판단.
@@ -227,10 +230,49 @@ bash scripts/measure-quality.sh <section_name> <section-dir>
 - **G7** Lighthouse (환경 있으면)
 - **G8** i18n (JSX에 literal text 존재)
 
-**FAIL 처리**:
-- `retry_count == 0` 이면 자체 1회 재시도 (구조 수정)
-- 재시도 후에도 FAIL이면 **즉시 멈춤**. 결과 JSON에 실패 내역 포함하여 반환
-- 임의로 [ACCEPTED_DEBT] 완화 판단 금지 — 이건 사용자/오케 결정
+**FAIL 처리** (feedback loop):
+
+- `retry_count == 0` (첫 호출, previous_failures 없음):
+  - 게이트 FAIL 시 자체 1회 재시도 (구조 수정). 그래도 FAIL 이면 구조화 실패 반환.
+- `retry_count == 1` (가이드 재시도, previous_failures 있음):
+  - 자체 내부 재시도 **없음** (단일 시도). `previous_failures` 를 반드시 먼저 읽고 접근 변경.
+  - 동일 카테고리 실패를 반복하면 안 됨 — 했다면 오케가 로그로 감지.
+- `retry_count == 2` (마지막 기회, previous_failures 누적):
+  - 자체 내부 재시도 **없음** (단일 시도). 누적 failures 전부 조회 + 구조적 재설계 시도.
+
+임의로 [ACCEPTED_DEBT] 완화 판단 금지 — 사용자/오케 결정.
+
+### §feedback-loop — 실패 카테고리 & 재시도 전략
+
+워커는 모든 FAIL 을 **아래 8개 카테고리 중 하나로 분류**해 반환 JSON 에 담는다.
+
+| category | 출처 | 전형적 원인 | 재시도 시 체크 포인트 |
+|---|---|---|---|
+| `TOKEN_DRIFT` | G4 | hex literal / non-token arbitrary color | `docs/token-audit.md` + `src/styles/tokens.css` 재조회 → `var(--*)` 또는 Tailwind 토큰 클래스로 치환 |
+| `A11Y` | G5 | `<div onClick>` / 랜드마크 누락 / alt 누락 | 시맨틱 요소(`<button>`/`<nav>`/`<section>`)로 교체, `aria-*` 속성 보강 |
+| `TEXT_RASTER` | G6 | 텍스트 포함 raster / text:image 비율 초과 | `<img alt="긴 문장">` 제거 → `<h*>`/`<p>`/`<li>` 로 텍스트 재구성. 배경만 img |
+| `I18N_MISSING` | G8 | JSX 에 literal text 없음 (alt 만 있음) | 사용자 가시 텍스트를 JSX 트리에 배치 |
+| `IMPORT_MISSING` | 자체 검증 | `required_imports` 무시하고 인라인 재구현 | 해당 컴포넌트 import 추가, 인라인 구현 삭제 |
+| `SYNTAX_ERROR` | tsc/build | TypeScript 컴파일 실패 | 타입 오류 / missing export / JSX syntax 수정 |
+| `LIGHTHOUSE` | G7 | a11y/SEO 점수 기준 미달 | 랜드마크 추가, heading 순서, meta tag, contrast |
+| `UNKNOWN` | 기타 | 분류 불가 | 원문 에러 로그 그대로 `message` 에 포함 |
+
+### §retry-strategies — retry_count 별 접근 변경
+
+**retry_count 0 (첫 호출)**: 일반 구현 → FAIL 시 자체 1회 재시도 → 그래도 FAIL 시 구조화 반환.
+
+**retry_count 1 (가이드 재시도)**:
+1. `previous_failures` 를 **전부 읽기** (건너뛰기 금지)
+2. 가장 많이 등장한 카테고리 식별 (예: TOKEN_DRIFT 3건 → 이게 주원인)
+3. 해당 카테고리의 체크 포인트(§feedback-loop 표)를 **구현 시작 전** 확인
+4. 1회만 시도 — 같은 카테고리 실패 반복되면 retry_count 2 로 넘어감
+
+**retry_count 2 (마지막 기회, Opus 승격 가능)**:
+1. 누적 `previous_failures` 전체 조회 (attempt 0 + 1 의 합)
+2. 반복 실패 카테고리 있으면 **구조 자체를 바꿔봄**
+   - 예: A11Y 반복 → div 기반 설계를 버리고 시맨틱 요소 기반으로 재설계
+   - 예: TEXT_RASTER 반복 → raster 에셋 포기, SVG 또는 CSS 로 재현
+3. 1회만 시도 — 그래도 FAIL 시 구조화 반환 + `needs_human: true` 플래그
 
 ### 5. 반환
 
@@ -239,6 +281,7 @@ bash scripts/measure-quality.sh <section_name> <section-dir>
 {
   "status": "success",
   "section": "home-hero",
+  "retry_count": 0,
   "files_created": ["src/components/sections/home/HomeHero.tsx", "..."],
   "assets": ["src/assets/home-hero/..."],
   "gates": { "G4": "PASS", "G5": "PASS", "G6": "PASS", "G7": "SKIP", "G8": "PASS" },
@@ -246,24 +289,53 @@ bash scripts/measure-quality.sh <section_name> <section-dir>
 }
 ```
 
-실패 시:
+실패 시 (구조화 포맷):
 ```json
 {
   "status": "failure",
   "section": "home-hero",
-  "gates": { "G4": "PASS", "G5": "FAIL", ... },
-  "failure_reason": "eslint jsx-a11y: <div onClick>",
-  "suggestions": ["Opus 재시도 권장", "수동 리팩터 필요"],
+  "retry_count": 0,
+  "gates": { "G4": "FAIL", "G5": "FAIL", "G6": "PASS", "G7": "SKIP", "G8": "PASS" },
+  "failures": [
+    {
+      "category": "TOKEN_DRIFT",
+      "gate": "G4",
+      "file": "src/components/sections/home/HomeHero.tsx",
+      "line": 42,
+      "message": "hex literal '#B84A32' found; use var(--terra) or bg-terra",
+      "attempt": 0
+    },
+    {
+      "category": "A11Y",
+      "gate": "G5",
+      "file": "src/components/sections/home/HomeHero.tsx",
+      "line": 67,
+      "message": "jsx-a11y/no-static-element-interactions: <div onClick>",
+      "attempt": 0
+    }
+  ],
+  "needs_human": false,
   "artifacts_preserved": true
 }
 ```
 
+필드 규약:
+- `failures[].category`: §feedback-loop 표의 8개 카테고리 중 하나 (절대 새 이름 만들지 말 것)
+- `failures[].attempt`: 이 실패가 발견된 시점의 retry_count (0/1/2)
+- `failures[].file` / `line`: 가능하면 구체 파일·라인 (에러 로그에서 파싱)
+- `needs_human`: retry_count 2 에서 여전히 FAIL 이면 true. 그 외 false
+- `retry_count==1` 반환 JSON 에는 `previous_failures` 에 받았던 내용 + 이번 `failures` 를 합쳐 반환
+- `retry_count==2` 도 동일 (전체 누적)
+
 ## 금지
 
 - ❌ 다른 섹션 파일 수정
-- ❌ tokens.css / fonts.css / tailwind.config.ts 수정 (토큰은 extract-tokens.sh만이 쓴다)
-- ❌ research 문서 작성 (lite에서 제거)
-- ❌ 3회 수정 루프 (자체 1회까지만)
+- ❌ tokens.css / fonts.css / tailwind.config.js|ts 수정 (figma 모드는 extract-tokens.sh, spec 모드는 bootstrap 이 씀)
+- ❌ research 문서 작성 (하네스 규율)
+- ❌ **retry_count==0 에서 2회 이상 자체 재시도** (1회 한도)
+- ❌ **retry_count≥1 에서 자체 재시도** (0회 — 단일 시도)
+- ❌ `previous_failures` 무시하고 같은 접근 반복
+- ❌ `failures[].category` 에 임의 이름 사용 (8개 enum 외 금지)
 - ❌ [ACCEPTED_DEBT] 태그 자체 판단
 - ❌ npm 신규 패키지 추가 (필요시 오케에 요청)
 - ❌ Framelink MCP 호출 (영구 폐기)
