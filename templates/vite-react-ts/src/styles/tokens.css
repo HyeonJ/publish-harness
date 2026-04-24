@@ -1,0 +1,8 @@
+/* tokens.css — placeholder. scripts/extract-tokens.sh 실행 후 덮어쓰여집니다. */
+
+:root {
+  /* 기본값. extract-tokens.sh 실행 전에 dev 서버가 돌아가도록 최소값만 유지. */
+  --surface-1: #ffffff;
+  --text-1: #000000;
+  --brand-1: #2563eb;
+}

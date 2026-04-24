@@ -1,0 +1,15 @@
+node_modules/
+dist/
+build/
+.vite/
+.DS_Store
+Thumbs.db
+*.log
+.env
+.env.local
+coverage/
+tests/quality/
+figma-screenshots/
+tmp/
+.lighthouseci/
+/dev-server.log

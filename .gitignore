@@ -1,0 +1,24 @@
+node_modules/
+dist/
+build/
+.vite/
+.DS_Store
+Thumbs.db
+*.log
+.env
+.env.local
+coverage/
+tests/visual/captures/
+tests/visual/diffs/
+tests/visual/quality/
+figma-screenshots/
+/tmp/
+.lighthouseci/
+
+# smoke-project는 로컬 검증용으로만 사용. 리포에는 scaffold만 유지.
+examples/smoke-project/
+
+# IDE
+.idea/
+.vscode/
+*.swp
