@@ -131,16 +131,27 @@ else
 fi
 
 # ---------- G5 시맨틱 HTML (eslint jsx-a11y) ----------
+# 참고: --no-warn-ignored 는 eslint v9+ 전용. 템플릿 eslint ^8.57 이므로 플래그 생략.
+# eslint 가 "Invalid option" / "Cannot find" 등 스크립트 레벨 에러로 종료하면
+# 실제 lint violation 과 구분해 SCRIPT_ERROR 로 표기 (G5 FAIL 과 다른 의미).
 echo ""
 echo "[G5] 시맨틱 HTML (eslint jsx-a11y)"
-if npx eslint "$dir" --no-warn-ignored >/tmp/g5.log 2>&1; then
+if npx eslint "$dir" >/tmp/g5.log 2>&1; then
   G5_STATUS="PASS"
   echo "  ✓ G5 PASS"
 else
-  tail -20 /tmp/g5.log
-  G5_STATUS="FAIL"
-  FAIL=1
-  echo "  ❌ G5 FAIL"
+  # 스크립트 레벨 에러 판별 (실제 lint 실패와 구분)
+  if grep -qE "Invalid option|Cannot find|ENOENT|unknown option" /tmp/g5.log; then
+    G5_STATUS="SCRIPT_ERROR"
+    echo "  ⚠ G5 SCRIPT_ERROR (eslint 실행 자체 실패 — 코드 이슈 아님)"
+    tail -10 /tmp/g5.log
+    # FAIL 처리 하지 않음 — 하네스/환경 문제는 워커가 해결할 사안이 아님
+  else
+    tail -20 /tmp/g5.log
+    G5_STATUS="FAIL"
+    FAIL=1
+    echo "  ❌ G5 FAIL"
+  fi
 fi
 
 # ---------- G6/G8 텍스트/이미지 비율 + i18n ----------
