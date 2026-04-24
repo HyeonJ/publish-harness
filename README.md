@@ -314,11 +314,70 @@ CLAUDE.md                            — bootstrap.sh 가 프로젝트 루트에
 
 | G | 항목 | 도구 | 차단/참고 |
 |---|---|---|---|
+| G1 | Visual regression | `check-visual-regression.mjs` (Playwright + pixelmatch) | **선택적 차단** — baseline 있고 diff > 2% 일 때만 FAIL |
 | G4 | 디자인 토큰 사용 | `check-token-usage.mjs` | 차단 (hex literal) |
 | G5 | 시맨틱 HTML | eslint jsx-a11y | 차단 |
 | G6 | 텍스트:이미지 비율 | `check-text-ratio.mjs` | 차단 |
 | G7 | Lighthouse a11y/SEO | `@lhci/cli` | 환경별 |
 | G8 | i18n 가능성 | `check-text-ratio.mjs` | 차단 |
+
+### G1 visual regression 가이드
+
+"선택적" 의미 — 다음 경우 **SKIP (차단 아님)**:
+- `playwright` / `pixelmatch` / `pngjs` devDep 미설치
+- `npx playwright install chromium` 미실행
+- `baselines/<section>/<viewport>.png` 파일 없음 (NO_BASELINE)
+- dev 서버 미기동 (`http://127.0.0.1:5173/__preview/<section>` 미접근)
+
+Baseline 확보 (모드별):
+
+**figma 모드**:
+```bash
+bash scripts/fetch-figma-baseline.sh <fileKey> <nodeId> <section> desktop
+# 반응형: tablet/mobile 추가
+```
+
+**spec 모드** (두 경로):
+```bash
+# A) reference HTML 로부터 자동 렌더
+node scripts/render-spec-baseline.mjs \
+  --html directions/direction-A-final.html \
+  --section home-hero \
+  --viewport desktop \
+  --selector "section.hero"
+
+# B) 구현 후 현 상태를 baseline 으로 고정
+node scripts/check-visual-regression.mjs \
+  --section home-hero \
+  --baseline baselines/home-hero/desktop.png \
+  --update-baseline
+```
+
+### End-to-end 테스트 (Figma 파일 1개로 수동 검증)
+
+최초 G1 셋업이 제대로 동작하는지 확인하는 순서:
+
+```bash
+# 1. 의존성 + chromium 설치
+npm install
+npx playwright install chromium
+
+# 2. 섹션 하나 구현 (Phase 3 완료된 섹션 예: home-hero)
+
+# 3. Figma baseline 확보
+bash scripts/fetch-figma-baseline.sh $FILE_KEY $NODE_ID home-hero desktop
+
+# 4. dev 서버 기동 (별도 터미널)
+npm run dev
+
+# 5. G1 실행 (preview route 준비 후)
+node scripts/check-visual-regression.mjs \
+  --section home-hero \
+  --baseline baselines/home-hero/desktop.png
+
+# 결과 예: { status: "PASS", diffPercent: 0.42, threshold: 2, ... }
+# FAIL 시 tests/quality/diffs/home-hero-desktop.diff.png 열어 drift 영역 확인
+```
 
 향후 게이트 (로드맵):
 - **G9 (brand-guardrails)** — spec 모드에서 `brand_guardrails` 위반 검출 (퍼플 그라데이션 / 이모지 아이콘 / 좌측 컬러 보더 카드 등). MVP 는 워커 자체 점검, 자동화는 후속.

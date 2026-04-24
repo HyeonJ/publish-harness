@@ -59,7 +59,9 @@
 | 토큰 | `docs/token-audit.md` + `src/styles/tokens.css` + `tailwind.config.js` |
 | 브랜드 가드레일 | `docs/project-context.md` 의 `brand_guardrails` 섹션 |
 
-## 게이트 (차단)
+## 게이트
+
+### 차단 게이트 (반드시 PASS)
 
 | G | 도구 | 의미 |
 |---|---|---|
@@ -68,7 +70,16 @@
 | G6 | `check-text-ratio.mjs` | 텍스트 baked-in raster 차단 |
 | G8 | `check-text-ratio.mjs` | JSX에 literal text 존재 (i18n 가능) |
 
-실행: `bash scripts/measure-quality.sh <section> <section-dir>`
+### 선택적 게이트 (환경/baseline 있을 때만 평가)
+
+| G | 도구 | SKIP 조건 | FAIL 조건 |
+|---|---|---|---|
+| G1 | `check-visual-regression.mjs` (playwright + pixelmatch) | deps 미설치 / chromium 미설치 / baseline 없음 / dev 서버 미기동 | diff > 2% (또는 치수 불일치) |
+| G7 | `@lhci/cli` | `@lhci/cli` 미설치 / preview 라우트 미접근 | a11y < 95 또는 seo < 90 |
+
+**G1 원칙**: baseline 없음 (`NO_BASELINE`) 이나 환경 미비 (`SKIPPED`) 는 차단하지 않음. diff 가 threshold 초과할 때만 FAIL. baseline 은 `baselines/<section>/<viewport>.png` 규약.
+
+실행: `bash scripts/measure-quality.sh <section> <section-dir> [--viewport desktop|tablet|mobile]`
 
 ## 참조 문서
 

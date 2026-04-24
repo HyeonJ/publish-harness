@@ -176,7 +176,7 @@ Agent({
   retry_count: 0                    // 0=첫 호출, 1=가이드 재시도, 2=마지막 기회
   previous_failures: []             // retry_count >= 1 에서만 채움. §feedback-loop 참조.
     형식: [{ category, gate, file, line?, message, attempt }]
-    category enum: TOKEN_DRIFT | A11Y | TEXT_RASTER | I18N_MISSING | IMPORT_MISSING | SYNTAX_ERROR | LIGHTHOUSE | UNKNOWN
+    category enum: VISUAL_DRIFT | TOKEN_DRIFT | A11Y | TEXT_RASTER | I18N_MISSING | IMPORT_MISSING | SYNTAX_ERROR | LIGHTHOUSE | UNKNOWN
   required_imports: (선택) Phase 2 DS 인벤토리 기반 공통 컴포넌트 목록
     예: [{ name: "Wordmark", path: "src/components/ui/Wordmark" },
          { name: "Button",   path: "src/components/ui/Button", variant: "default" }]

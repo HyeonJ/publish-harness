@@ -219,11 +219,47 @@ model: sonnet
 
 ### 4. 품질 게이트 (필수, 축약 없이 모두 실행)
 
+#### 4.1 G1 baseline 준비 (선택, 모드별)
+
+G1 visual regression 은 `baselines/<section>/<viewport>.png` 파일을 입력으로 받는다. 해당 파일이 있을 때만 G1 PASS/FAIL 판정, 없으면 NO_BASELINE (차단 아님).
+
+**figma 모드** — 섹션 구현 전에 baseline 확보 권장:
+```bash
+# desktop 기본
+bash scripts/fetch-figma-baseline.sh <fileKey> <figma_node_id> <section_name> desktop
+# 반응형 섹션이면 tablet/mobile 도
+bash scripts/fetch-figma-baseline.sh <fileKey> <figma_node_id_tablet> <section_name> tablet
+bash scripts/fetch-figma-baseline.sh <fileKey> <figma_node_id_mobile> <section_name> mobile
+```
+
+**spec 모드** — 핸드오프에 baseline PNG 가 들어 있으면 그 파일을 `baselines/<section>/<viewport>.png` 로 복사. 없으면 두 선택지:
+
+옵션 A (reference HTML 을 baseline 으로):
+```bash
+node scripts/render-spec-baseline.mjs \
+  --html <reference_html 경로> \
+  --section <section_name> \
+  --viewport desktop \
+  --selector "<해당 컴포넌트 CSS selector>"
+```
+
+옵션 B (baseline 없이 진행): 그냥 구현 후 G1 은 NO_BASELINE 으로 SKIP. 시각 확인 끝나고 OK 라고 판단되면 그때 `--update-baseline` 으로 현 상태를 baseline 으로 확정:
+```bash
+node scripts/check-visual-regression.mjs \
+  --section <section_name> --baseline baselines/<section_name>/desktop.png \
+  --update-baseline
+```
+
+#### 4.2 게이트 실행
+
 ```bash
 bash scripts/measure-quality.sh <section_name> <section-dir>
+# 반응형 검증 시 viewport 바꿔 가며 재실행:
+bash scripts/measure-quality.sh <section_name> <section-dir> --viewport mobile
 ```
 
 게이트:
+- **G1** visual regression (`check-visual-regression.mjs`) — **선택**, 환경 미비 / baseline 없음은 SKIP
 - **G4** hex literal 차단 (`check-token-usage.mjs`)
 - **G5** eslint jsx-a11y
 - **G6** 텍스트:이미지 비율 + raster-heavy 차단
@@ -248,6 +284,7 @@ bash scripts/measure-quality.sh <section_name> <section-dir>
 
 | category | 출처 | 전형적 원인 | 재시도 시 체크 포인트 |
 |---|---|---|---|
+| `VISUAL_DRIFT` | G1 | baseline 대비 diffPercent > threshold | `tests/quality/diffs/<section>-<viewport>.diff.png` 열어 drift 영역 확인 → 위치/색/크기 수정. 치수 불일치면 figma baseline 재확보 (`fetch-figma-baseline.sh`) |
 | `TOKEN_DRIFT` | G4 | hex literal / non-token arbitrary color | `docs/token-audit.md` + `src/styles/tokens.css` 재조회 → `var(--*)` 또는 Tailwind 토큰 클래스로 치환 |
 | `A11Y` | G5 | `<div onClick>` / 랜드마크 누락 / alt 누락 | 시맨틱 요소(`<button>`/`<nav>`/`<section>`)로 교체, `aria-*` 속성 보강 |
 | `TEXT_RASTER` | G6 | 텍스트 포함 raster / text:image 비율 초과 | `<img alt="긴 문장">` 제거 → `<h*>`/`<p>`/`<li>` 로 텍스트 재구성. 배경만 img |

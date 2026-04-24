@@ -125,15 +125,20 @@ spec 모드에서는 `figma-screenshots/` 디렉토리를 생성하지 않는다
 각 섹션/컴포넌트마다 `section-worker` 1회 호출. 워커가 4단계를 자체 완료:
 
 ```
-1. 리서치      → plan/{section}.md (컴포넌트 트리 + 에셋 표 + 사용 토큰)
-                 · figma 모드: figma-rest-image + get_design_context
-                 · spec 모드: components-spec.md 파트 Read + reference HTML Read
-2. 에셋 수집   → src/assets/{section}/
-                 · figma 모드: nodeId 기반 REST export
-                 · spec 모드: handoff 리포 아이콘 복사 또는 inline SVG
-3. 구현        → src/components/{sections|ui|brand}/{Name}.tsx + preview route
-4. 품질 게이트 → scripts/measure-quality.sh (G4/G5/G6/G8)
-                 · spec 모드는 brand_guardrails 자체 점검 추가
+1. 리서치        → plan/{section}.md (컴포넌트 트리 + 에셋 표 + 사용 토큰)
+                   · figma 모드: figma-rest-image + get_design_context
+                   · spec 모드: components-spec.md 파트 Read + reference HTML Read
+2. 에셋 수집     → src/assets/{section}/
+                   · figma 모드: nodeId 기반 REST export
+                   · spec 모드: handoff 리포 아이콘 복사 또는 inline SVG
+3. 구현          → src/components/{sections|ui|brand}/{Name}.tsx + preview route
+4.1 G1 baseline 준비 → baselines/<section>/<viewport>.png (선택)
+                   · figma 모드: fetch-figma-baseline.sh
+                   · spec 모드: render-spec-baseline.mjs (reference HTML 렌더)
+                     또는 --update-baseline 으로 첫 구현 고정
+4.2 품질 게이트   → scripts/measure-quality.sh (G1/G4/G5/G6/G7/G8)
+                   · G1/G7 은 환경별 SKIP 허용
+                   · spec 모드는 brand_guardrails 자체 점검 추가
 ```
 
 **워커 반환 처리**:
