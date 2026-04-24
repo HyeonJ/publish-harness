@@ -87,7 +87,22 @@ IMAGES_URL="https://api.figma.com/v1/images/${FILE_KEY}?ids=${NODE_ID}&format=${
 echo "[figma-rest-image] fetch S3 URL: ${NODE_ID} scale=${SCALE} format=${FORMAT}"
 
 API_JSON=$(curl -sS -H "X-Figma-Token: ${FIGMA_TOKEN}" "$IMAGES_URL")
-API_ERR=$(echo "$API_JSON" | node -e "let j=''; process.stdin.on('data',d=>j+=d); process.stdin.on('end',()=>{try{const o=JSON.parse(j);if(o.err)process.stdout.write(o.err);else if(o.status&&o.status>=400)process.stdout.write(o.err||JSON.stringify(o));}catch(e){process.stdout.write('parse-error: '+e.message)}})" 2>/dev/null)
+# 에러 포착 규칙:
+#   1. Figma API 는 에러 시 { err: "msg" } 또는 { status: 4xx/5xx, err?: "..." }
+#   2. 본문이 HTML/평문이면 JSON.parse 실패 → parse-error 로 표기 (curl/Cloudflare 중간 실패)
+#   3. 에러 없으면 빈 문자열 (아래 if 블록 skip)
+API_ERR=$(echo "$API_JSON" | node -e "
+let j='';
+process.stdin.on('data',d=>j+=d);
+process.stdin.on('end',()=>{
+  try {
+    const o = JSON.parse(j);
+    if (o.err) { process.stdout.write(o.err); }
+    else if (o.status && o.status >= 400) { process.stdout.write('HTTP ' + o.status + ': ' + JSON.stringify(o)); }
+  } catch (e) {
+    process.stdout.write('parse-error (body not JSON): ' + e.message);
+  }
+})" 2>/dev/null)
 
 if [ -n "$API_ERR" ]; then
   echo "ERROR: Figma API returned error: $API_ERR" >&2

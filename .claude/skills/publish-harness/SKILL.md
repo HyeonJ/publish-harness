@@ -160,46 +160,70 @@ spec 모드에서는 `figma-screenshots/` 디렉토리를 생성하지 않는다
 
 ### 섹션 워커 스폰
 
+### 정식 prompt 포맷 (필수 준수)
+
+워커가 안정적으로 파싱하려면 **YAML-like key:value 블록** + **구조화 필드는 JSON 문자열** 혼합 포맷 사용. prose 로 뿌리지 말 것 (retry 경로에서 `previous_failures` 파싱 실패 유발).
+
 각 섹션마다:
 
 ```
 Agent({
   subagent_type: "section-worker",
-  // model 필드는 명시하지 않음 — frontmatter의 sonnet 따름
+  // model 필드는 명시하지 않음 — frontmatter의 sonnet 따름. retry_count==2 + 반복 FAIL 시 model: opus 승격.
   description: "{section} 구현",
-  prompt: `섹션/컴포넌트를 4단계로 처리하라.
+  prompt: `섹션/컴포넌트를 section-worker.md §4단계 로 처리하라.
 
-  # 공통 필드
-  mode: figma | spec                // 모드 판별 (figma = Figma REST 쿼리, spec = 텍스트 스펙)
-  section_name: {section}
-  route: {route}                    // 페이지 라우트 (컴포넌트만 구현하는 경우 빈 문자열)
-  retry_count: 0                    // 0=첫 호출, 1=가이드 재시도, 2=마지막 기회
-  previous_failures: []             // retry_count >= 1 에서만 채움. §feedback-loop 참조.
-    형식: [{ category, gate, file, line?, message, attempt }]
-    category enum: VISUAL_DRIFT | TOKEN_DRIFT | A11Y | TEXT_RASTER | I18N_MISSING | IMPORT_MISSING | SYNTAX_ERROR | LIGHTHOUSE | UNKNOWN
-  required_imports: (선택) Phase 2 DS 인벤토리 기반 공통 컴포넌트 목록
-    예: [{ name: "Wordmark", path: "src/components/ui/Wordmark" },
-         { name: "Button",   path: "src/components/ui/Button", variant: "default" }]
-    명시된 컴포넌트는 반드시 import해서 사용. 인라인 재구현 금지 (DRY 위반).
+# 입력 필드 (YAML-like, 아래 순서 유지)
 
-  # figma 모드 전용 필드
-  page_name: {page}
-  figma_file_key: {fileKey}
-  figma_node_id: {nodeId}           // Desktop 기준
-  figma_node_id_tablet: (선택) Tablet 뷰포트 nodeId. 있으면 Tier 2 경로.
-  figma_node_id_mobile: (선택) Mobile 뷰포트 nodeId. 있으면 Tier 2 경로.
+mode: spec
+section_name: Button
+route: /__preview/Button
+retry_count: 0
+previous_failures: []
+required_imports: []
 
-  # spec 모드 전용 필드
-  spec_path: "docs/components-spec.md"
-  spec_section: "3.1 <Button>"      // components-spec.md 의 파트 번호 + 컴포넌트명
-  reference_html: (선택) 시각 참조용 HTML 경로
-    예: ["directions/direction-A-final.html", "web/web-prototype.html"]
-  brand_guardrails: (선택) Phase 2 에서 추출한 금지 패턴 리스트
-    예: ["퍼플 그라데이션 금지", "이모지 아이콘 금지", "좌측 컬러 보더 카드 금지"]
+# spec 모드 전용
+spec_path: docs/components-spec.md
+spec_section: "3.1 <Button>"
+reference_html: ["directions/direction-A-final.html"]
+brand_guardrails: ["퍼플 그라데이션 금지", "이모지 아이콘 금지"]
 
-  docs/workflow.md 참고. 모든 게이트 PASS 후 결과 JSON 반환.`
+# figma 모드 전용 (spec 모드에선 생략)
+# page_name: home
+# figma_file_key: ABC123
+# figma_node_id: 12:345
+# figma_node_id_tablet: 12:346
+# figma_node_id_mobile: 12:347
+
+docs/workflow.md §Phase 3 참고. 모든 게이트 평가 후 §5 반환 스키마대로 단일 JSON 블록 반환.
+`
 })
 ```
+
+### 필드 시맨틱
+
+- **`retry_count`**: `0`=첫 호출 / `1`=가이드 재시도 / `2`=마지막 기회 (opus 승격 가능)
+- **`previous_failures`**: **JSON 배열 문자열로 직렬화**. retry_count≥1 에서만 비어있지 않음.
+  ```
+  previous_failures: [{"category":"TOKEN_DRIFT","gate":"G4","file":"src/components/ui/Button.tsx","line":42,"message":"hex literal '#B84A32' found","attempt":0}]
+  ```
+  - `category` enum (9개): `VISUAL_DRIFT` | `TOKEN_DRIFT` | `A11Y` | `TEXT_RASTER` | `I18N_MISSING` | `IMPORT_MISSING` | `SYNTAX_ERROR` | `LIGHTHOUSE` | `UNKNOWN`
+  - `attempt`: 이 실패가 발견된 retry_count (0/1)
+  - 누적 전달: retry_count=2 호출 시 attempt=0 + attempt=1 failures 모두 포함
+- **`required_imports`**: JSON 배열 문자열.
+  ```
+  required_imports: [{"name":"Wordmark","path":"src/components/ui/Wordmark"},{"name":"Button","path":"src/components/ui/Button","variant":"default"}]
+  ```
+- **`reference_html` / `brand_guardrails`**: 문자열 배열.
+- **`spec_section`**: `components-spec.md` 의 `## <번호> <컴포넌트명>` 헤더에서 번호+이름 부분 그대로 (예: `"3.1 <Button>"`).
+
+### 파싱 규약 (워커 측)
+
+워커는 prompt 에서 다음 순서로 필드 추출:
+1. `^key:\s*(.+)$` 정규식 매칭 (YAML-like 라인)
+2. JSON 배열/객체 값은 `JSON.parse()` 또는 Read 이후 직접 해석
+3. 누락된 필드는 mode 에 따라 default 적용 (figma 모드에서 spec 필드 없음 = 무시)
+4. 파싱 불가하면 `status: "failure"` + `failures: [{category:"UNKNOWN", message:"prompt parse error: <상세>"}]` 로 즉시 반환
 
 ### 워커 반환 결과 처리
 

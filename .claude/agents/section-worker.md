@@ -18,6 +18,15 @@ model: sonnet
 
 ## 입력 (오케스트레이터가 prompt로 전달)
 
+### prompt 포맷 (정식)
+
+오케가 SKILL.md §정식 prompt 포맷 규약으로 보낸다. YAML-like `key: value` 라인 + 구조화 필드(배열/객체)는 JSON 문자열. 파싱 순서:
+
+1. `^<key>:\s*(.+)$` 정규식으로 각 라인 매칭
+2. `previous_failures` / `required_imports` / `reference_html` / `brand_guardrails` 는 `JSON.parse()` 로 역직렬화
+3. 주석(`#`) 라인 무시
+4. 파싱 실패 시 즉시 `status: "failure"` + `failures: [{category:"UNKNOWN", message:"prompt parse error: ..."}]` 반환. 구현 단계 진입 금지
+
 ### 공통 필드 (모드 무관)
 
 - `mode`: `figma` | `spec` — 모드 판별 (없으면 `docs/project-context.md` 에서 조회)
@@ -280,7 +289,7 @@ bash scripts/measure-quality.sh <section_name> <section-dir> --viewport mobile
 
 ### §feedback-loop — 실패 카테고리 & 재시도 전략
 
-워커는 모든 FAIL 을 **아래 8개 카테고리 중 하나로 분류**해 반환 JSON 에 담는다.
+워커는 모든 FAIL 을 **아래 9개 카테고리 중 하나로 분류**해 반환 JSON 에 담는다.
 
 | category | 출처 | 전형적 원인 | 재시도 시 체크 포인트 |
 |---|---|---|---|
@@ -357,7 +366,7 @@ bash scripts/measure-quality.sh <section_name> <section-dir> --viewport mobile
 ```
 
 필드 규약:
-- `failures[].category`: §feedback-loop 표의 8개 카테고리 중 하나 (절대 새 이름 만들지 말 것)
+- `failures[].category`: §feedback-loop 표의 9개 카테고리 중 하나 (절대 새 이름 만들지 말 것)
 - `failures[].attempt`: 이 실패가 발견된 시점의 retry_count (0/1/2)
 - `failures[].file` / `line`: 가능하면 구체 파일·라인 (에러 로그에서 파싱)
 - `needs_human`: retry_count 2 에서 여전히 FAIL 이면 true. 그 외 false
@@ -372,7 +381,7 @@ bash scripts/measure-quality.sh <section_name> <section-dir> --viewport mobile
 - ❌ **retry_count==0 에서 2회 이상 자체 재시도** (1회 한도)
 - ❌ **retry_count≥1 에서 자체 재시도** (0회 — 단일 시도)
 - ❌ `previous_failures` 무시하고 같은 접근 반복
-- ❌ `failures[].category` 에 임의 이름 사용 (8개 enum 외 금지)
+- ❌ `failures[].category` 에 임의 이름 사용 (9개 enum 외 금지)
 - ❌ [ACCEPTED_DEBT] 태그 자체 판단
 - ❌ npm 신규 패키지 추가 (필요시 오케에 요청)
 - ❌ Framelink MCP 호출 (영구 폐기)

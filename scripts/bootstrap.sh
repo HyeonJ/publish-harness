@@ -161,16 +161,23 @@ if [ ! -d "$HARNESS_DIR/templates/vite-react-ts" ]; then
 fi
 
 # ---------- 환경 선행 체크 (doctor.sh) ----------
+# set -u 만 있어 파이프라인의 마지막 명령 exit 가 스크립트에 반영됨.
+# doctor.sh 가 FAIL 해도 tail 이 0 을 리턴하면 스크립트가 계속 진행되므로
+# exit code 를 명시적으로 포착한다.
 if [ -f "$HARNESS_DIR/scripts/doctor.sh" ]; then
   echo "[bootstrap] 선행 환경 체크 (doctor.sh)"
   DOCTOR_ARGS="--skip-project"
   if [ "$MODE" = "spec" ]; then
     DOCTOR_ARGS="$DOCTOR_ARGS --skip-figma"
   fi
-  if ! bash "$HARNESS_DIR/scripts/doctor.sh" $DOCTOR_ARGS 2>&1 | tee /tmp/bootstrap-doctor.log | tail -20; then
+  bash "$HARNESS_DIR/scripts/doctor.sh" $DOCTOR_ARGS > /tmp/bootstrap-doctor.log 2>&1
+  DOCTOR_RC=$?
+  tail -20 /tmp/bootstrap-doctor.log
+  if [ "$DOCTOR_RC" -ne 0 ]; then
     echo "" >&2
     echo "ERROR: 필수 환경 미비. 위 출력의 [✗] 항목을 해결한 후 재실행하세요." >&2
-    echo "  docs/SETUP.md 참고." >&2
+    echo "  전체 로그: /tmp/bootstrap-doctor.log" >&2
+    echo "  셋업 가이드: ${HARNESS_DIR}/docs/SETUP.md" >&2
     exit 4
   fi
   echo ""
@@ -241,6 +248,9 @@ cp "$HARNESS_DIR/scripts/extract-tokens.sh" scripts/
 cp "$HARNESS_DIR/scripts/_extract-tokens-analyze.mjs" scripts/
 cp "$HARNESS_DIR/scripts/check-text-ratio.mjs" scripts/
 cp "$HARNESS_DIR/scripts/check-token-usage.mjs" scripts/
+cp "$HARNESS_DIR/scripts/check-visual-regression.mjs" scripts/
+cp "$HARNESS_DIR/scripts/fetch-figma-baseline.sh" scripts/
+cp "$HARNESS_DIR/scripts/render-spec-baseline.mjs" scripts/
 cp "$HARNESS_DIR/scripts/measure-quality.sh" scripts/
 cp "$HARNESS_DIR/scripts/doctor.sh" scripts/
 cp "$HARNESS_DIR/scripts/setup-figma-token.sh" scripts/
