@@ -276,6 +276,8 @@ cp "$HARNESS_DIR/scripts/check-text-ratio.mjs" scripts/
 cp "$HARNESS_DIR/scripts/check-token-usage.mjs" scripts/
 cp "$HARNESS_DIR/scripts/check-text-ratio-html.mjs" scripts/
 cp "$HARNESS_DIR/scripts/check-token-usage-html.mjs" scripts/
+cp "$HARNESS_DIR/scripts/check-write-protection.mjs" scripts/
+cp "$HARNESS_DIR/scripts/write-protected-paths.json" scripts/
 cp "$HARNESS_DIR/scripts/check-visual-regression.mjs" scripts/
 cp "$HARNESS_DIR/scripts/fetch-figma-baseline.sh" scripts/
 cp "$HARNESS_DIR/scripts/render-spec-baseline.mjs" scripts/

@@ -132,6 +132,7 @@ G5_STATUS="SKIP"
 G6_STATUS="SKIP"
 G7_STATUS="SKIP"
 G8_STATUS="SKIP"
+G10_STATUS="SKIP"
 
 # ---------- G1 visual regression (선택, playwright + pixelmatch) ----------
 echo "[G1] visual regression (viewport=${VIEWPORT}, baseline=${BASELINE})"
@@ -258,6 +259,23 @@ else
   fi
 fi
 
+# ---------- G10 write-protected paths ----------
+echo ""
+echo "[G10] write-protected paths"
+G10_PATHS_JSON="${SCRIPT_DIR}/write-protected-paths.json"
+if [ ! -f "$G10_PATHS_JSON" ]; then
+  echo "  ⚠ G10 SKIP — SSoT JSON 없음 ($G10_PATHS_JSON)"
+elif node "${SCRIPT_DIR}/check-write-protection.mjs" --paths "$G10_PATHS_JSON" 2>/tmp/g10.err >/tmp/g10.out; then
+  G10_STATUS="PASS"
+  echo "  ✓ G10 PASS"
+else
+  G10_STATUS="FAIL"
+  FAIL=1
+  cat /tmp/g10.out 2>/dev/null || true
+  cat /tmp/g10.err 2>/dev/null || true
+  echo "  ❌ G10 FAIL"
+fi
+
 # ---------- JSON 결과 저장 ----------
 # G1_DETAIL 가 JSON 이면 그대로, 아니면 status 만
 if [ -z "$G1_DETAIL" ]; then
@@ -277,7 +295,8 @@ cat > "$OUT" <<EOF
   "G5_semantic_html": "$G5_STATUS",
   "G6_text_image_ratio": "$G6_STATUS",
   "G7_lighthouse": "$G7_STATUS",
-  "G8_i18n": "$G8_STATUS"
+  "G8_i18n": "$G8_STATUS",
+  "G10_write_protection": "$G10_STATUS"
 }
 EOF
 
@@ -285,7 +304,7 @@ echo ""
 echo "=================================="
 echo "결과 저장: $OUT"
 if [ "$FAIL" -eq 0 ]; then
-  echo "✓ G4/G5/G6/G8 PASS (G1/G7 환경별)"
+  echo "✓ G4/G5/G6/G8/G10 PASS (G1/G7 환경별)"
   exit 0
 else
   echo "❌ 품질 게이트 미통과. 구현 재검토 후 재실행."

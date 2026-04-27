@@ -361,6 +361,7 @@ bash scripts/measure-quality.sh {section} public/__preview/{section} --files "$F
 - **G6** 텍스트:이미지 비율 + raster-heavy 차단
 - **G7** Lighthouse (환경 있으면)
 - **G8** i18n (JSX에 literal text 존재)
+- **G10** write-protected paths 차단 (`check-write-protection.mjs`) — tokens.css 등 SSoT 수정 시 FAIL
 
 **FAIL 처리** (feedback loop):
 
@@ -388,6 +389,7 @@ bash scripts/measure-quality.sh {section} public/__preview/{section} --files "$F
 | `IMPORT_MISSING` | 자체 검증 | `required_imports` 무시하고 인라인 재구현 | 해당 컴포넌트 import 추가, 인라인 구현 삭제 |
 | `SYNTAX_ERROR` | tsc/build | TypeScript 컴파일 실패 | 타입 오류 / missing export / JSX syntax 수정 |
 | `LIGHTHOUSE` | G7 | a11y/SEO 점수 기준 미달 | 랜드마크 추가, heading 순서, meta tag, contrast |
+| `WRITE_PROTECTION` | G10 | tokens.css / fonts.css / tailwind.config / components-spec.md 등 SSoT 수정 | 변경분 revert (`git checkout HEAD -- <path>`), notes 에 사유 기록, 가장 가까운 기존 토큰 사용 |
 | `UNKNOWN` | 기타 | 분류 불가 | 원문 에러 로그 그대로 `message` 에 포함 |
 
 ### §retry-strategies — retry_count 별 접근 변경
@@ -463,7 +465,10 @@ bash scripts/measure-quality.sh {section} public/__preview/{section} --files "$F
 ## 금지
 
 - ❌ 다른 섹션 파일 수정
-- ❌ tokens.css / fonts.css / tailwind.config.js|ts 수정 (figma 모드는 extract-tokens.sh, spec 모드는 bootstrap 이 씀)
+- ❌ **`scripts/write-protected-paths.json` 에 명시된 모든 path 수정** (G10 게이트가 결정적으로 차단)
+  - 현재 보호: tokens.css / fonts.css / tailwind.config.{js,ts} / components-spec.md / handoff-README.md / public/css/main.css
+  - 정당한 작성자만 수정: `extract-tokens.sh` (figma 모드 토큰) / `bootstrap.sh` (spec 모드 handoff 복사 또는 템플릿 default)
+  - **누락된 토큰 발견 시**: tokens.css 수정 X, 가장 가까운 기존 토큰 사용 + 반환 JSON 의 `notes` 에 기록 → 오케스트레이터가 `extract-tokens` 재실행 결정
 - ❌ research 문서 작성 (하네스 규율)
 - ❌ **retry_count==0 에서 2회 이상 자체 재시도** (1회 한도)
 - ❌ **retry_count≥1 에서 자체 재시도** (0회 — 단일 시도)
