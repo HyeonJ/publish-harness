@@ -394,10 +394,9 @@ node scripts/check-visual-regression.mjs \
 - [x] **G1 visual regression** (선택적 실행, Playwright + pixelmatch)
 - [x] **Feedback loop** — 3단계 자동 재시도 + 9개 실패 카테고리 분류
 - [x] 첫 스모크 (Chapter BrandMark, spec 모드) 통과 + G5 eslint 버그 발견·수정
-- [x] **`figma × html-static`** (`templates/html-static/`) — Figma 디자인을 정적 랜딩/마케팅 HTML 로 변환 (Stage 2, M1~M6 완료. M7 종단 스모크는 figma URL 제공 시 진행)
+- [x] **`figma × html-static`** (`templates/html-static/`) — Figma 디자인을 정적 랜딩/마케팅 HTML 로 변환 (Stage 2 M1~M7 완료, 종단 스모크 통과)
 
-### Stage 2 (잔여)
-- [ ] **`figma × html-static` 종단 스모크** — 실제 figma 1 섹션으로 워크플로 검증 (Phase 4 / M7)
+### 다음 후보
 - [ ] G9 brand-guardrails 자동 게이트 (spec 모드에서 Forbidden Patterns 위반 검출)
 
 ### Stage 3+ (실제 use case 기반)

@@ -339,14 +339,15 @@ if [ "$MODE" = "figma" ]; then
     fi
   fi
 
-  # html-static 의 경우 extract-tokens 가 만든 src/styles/tokens.css 를
-  # public/css/tokens.css 로 이동 (vite 와 다른 위치).
-  if [ "$TEMPLATE" = "html-static" ] && [ -f "src/styles/tokens.css" ]; then
+  # html-static 의 경우 extract-tokens 가 만든 src/styles/{tokens,fonts}.css 를
+  # public/css/ 로 이동 (vite 와 다른 위치). tmp/ 임시 파일도 정리.
+  if [ "$TEMPLATE" = "html-static" ]; then
     mkdir -p public/css
-    mv src/styles/tokens.css public/css/tokens.css
-    rmdir src/styles 2>/dev/null || true
-    rmdir src 2>/dev/null || true
-    echo "  ✓ public/css/tokens.css (html-static 위치로 이동)"
+    [ -f "src/styles/tokens.css" ] && mv src/styles/tokens.css public/css/tokens.css \
+      && echo "  ✓ public/css/tokens.css (html-static 위치로 이동)"
+    [ -f "src/styles/fonts.css" ] && mv src/styles/fonts.css public/css/fonts.css \
+      && echo "  ✓ public/css/fonts.css (html-static 위치로 이동)"
+    rm -rf src tmp
   fi
 else
   # spec 모드: handoff 파일을 프로젝트에 주입
