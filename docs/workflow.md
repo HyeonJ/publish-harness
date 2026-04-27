@@ -23,7 +23,16 @@ bash scripts/bootstrap.sh <figma-url> [project-name] \
 
 # spec 모드 — 정적 핸드오프 번들 임포트
 bash scripts/bootstrap.sh --mode spec --from-handoff <dir> [project-name]
+
+# 출력 템플릿을 html-static 으로 (figma 모드만 지원)
+bash scripts/bootstrap.sh --mode figma --template html-static <figma-url>
 ```
+
+### Template 분기
+
+`docs/project-context.md` 의 `template:` 필드가 출력 템플릿을 결정한다 (`vite-react-ts` | `html-static`). bootstrap 단계에서 `--template` 인자에 따라 자동 기록. `measure-quality.sh` 와 section-worker 가 이 필드를 보고 게이트 명령 / 산출물 경로를 분기한다. 환경변수 `TEMPLATE` / `PREVIEW_BASE_URL` 로 일회성 override 가능.
+
+지원 매트릭스: [`docs/template-support-matrix.md`](./template-support-matrix.md). `spec × html-static` 은 mismatch — bootstrap.sh 가 명시적으로 차단.
 
 자동 수행 (공통):
 1. Vite + React + TS + Tailwind + Router 스캐폴드
