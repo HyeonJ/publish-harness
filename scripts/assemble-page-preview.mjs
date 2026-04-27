@@ -18,10 +18,6 @@
  *   --page <x>   → public/<x>.html
  *   (또는 --out 으로 명시 override)
  *
- * Legacy positional (deprecated):
- *   node scripts/assemble-page-preview.mjs <page> <s1,s2,...>
- *   → stderr 경고 후 동작
- *
  * 종료 코드: 0 OK, 1 산출물 모두 누락, 2 usage error.
  */
 
@@ -38,30 +34,15 @@ function parseArgs() {
     else if (a === "--sections") opts.sections = args[++i];
     else if (a === "--out") opts.out = args[++i];
     else if (a === "-h" || a === "--help") {
-      console.error(
-        "usage: assemble-page-preview.mjs --page <name> --sections <s1,s2,...> [--out <path>]",
-      );
+      console.error("usage: assemble-page-preview.mjs --page <name> --sections <s1,s2,...> [--out <path>]");
       process.exit(2);
-    } else if (!a.startsWith("--")) {
-      if (opts.page === null) {
-        opts.page = a;
-        console.error("⚠ DEPRECATION: positional <page> arg. Use --page <name>");
-      } else if (opts.sections === null) {
-        opts.sections = a;
-        console.error("⚠ DEPRECATION: positional <sections> arg. Use --sections <s1,s2,...>");
-      } else {
-        console.error(`ERROR: too many positional args: ${a}`);
-        process.exit(2);
-      }
     } else {
       console.error(`ERROR: unknown arg: ${a}`);
       process.exit(2);
     }
   }
   if (!opts.page || !opts.sections) {
-    console.error(
-      "usage: assemble-page-preview.mjs --page <name> --sections <s1,s2,...> [--out <path>]",
-    );
+    console.error("usage: assemble-page-preview.mjs --page <name> --sections <s1,s2,...> [--out <path>]");
     process.exit(2);
   }
   if (!opts.out) {

@@ -66,12 +66,17 @@ function git(args) {
 function changedFiles(base, head) {
   let lines;
   if (head) {
+    // 두 commit 사이 명시 비교
     lines = git(`diff ${base} ${head} --name-only`).split("\n");
   } else {
-    const a = git(`diff ${base} --name-only`).split("\n");
-    const b = git(`diff --name-only`).split("\n");
-    const c = git(`diff --cached --name-only`).split("\n");
-    lines = [...a, ...b, ...c];
+    // working tree 케이스: git status --porcelain 한 번으로 staged + unstaged + untracked 모두 커버.
+    // base 가 HEAD 가 아니면 base..HEAD 의 commit 변경도 추가로 합산.
+    const status = git("status --porcelain=v1").split("\n");
+    const fromStatus = status
+      .map((s) => s.replace(/^.{2}\s+/, ""))
+      .flatMap((s) => (s.includes(" -> ") ? s.split(" -> ") : [s]));
+    const fromBase = base !== "HEAD" ? git(`diff ${base} HEAD --name-only`).split("\n") : [];
+    lines = [...fromStatus, ...fromBase];
   }
   return new Set(lines.map((s) => s.trim().replace(/\\/g, "/")).filter(Boolean));
 }
