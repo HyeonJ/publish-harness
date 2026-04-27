@@ -38,6 +38,40 @@
 
 set -u
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+# ---------- template 자동 조회 (project-context.md 우선, env override 가능) ----------
+if [ -z "${TEMPLATE:-}" ]; then
+  if [ -f "docs/project-context.md" ]; then
+    TEMPLATE=$(grep -E "^template:" docs/project-context.md | head -1 | awk '{print $2}' | tr -d '#"')
+  fi
+  TEMPLATE="${TEMPLATE:-vite-react-ts}"
+fi
+
+if [ -z "${PREVIEW_BASE_URL:-}" ]; then
+  if [ -f "docs/project-context.md" ]; then
+    PREVIEW_BASE_URL=$(grep -E "^preview_base_url:" docs/project-context.md | head -1 | awk '{print $2}' | tr -d '#"')
+  fi
+  PREVIEW_BASE_URL="${PREVIEW_BASE_URL:-http://127.0.0.1:5173}"
+fi
+
+case "$TEMPLATE" in
+  vite-react-ts)
+    G4_SCRIPT="${SCRIPT_DIR}/check-token-usage.mjs"
+    G6_SCRIPT="${SCRIPT_DIR}/check-text-ratio.mjs"
+    G7_URL_FMT="%s/__preview/%s"
+    ;;
+  html-static)
+    G4_SCRIPT="${SCRIPT_DIR}/check-token-usage-html.mjs"
+    G6_SCRIPT="${SCRIPT_DIR}/check-text-ratio-html.mjs"
+    G7_URL_FMT="%s/__preview/%s/"
+    ;;
+  *)
+    echo "ERROR: 알 수 없는 template: $TEMPLATE" >&2
+    exit 2
+    ;;
+esac
+
 # ---------- 인자 파싱 ----------
 section=""
 dir=""
@@ -86,7 +120,6 @@ if [ -z "$BASELINE" ]; then
   BASELINE="baselines/${section}/${VIEWPORT}.png"
 fi
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 OUT_DIR="tests/quality"
 mkdir -p "$OUT_DIR"
 OUT="$OUT_DIR/${section}.json"
@@ -138,7 +171,7 @@ esac
 echo ""
 echo "[G4] 디자인 토큰 사용 (hex literal 차단, scope=${TARGET_SCOPE})"
 # shellcheck disable=SC2086
-if node "${SCRIPT_DIR}/check-token-usage.mjs" $TARGET_SET 2>/tmp/g4.err; then
+if node "$G4_SCRIPT" $TARGET_SET 2>/tmp/g4.err; then
   G4_STATUS="PASS"
   echo "  ✓ G4 PASS"
 else
@@ -177,7 +210,7 @@ fi
 echo ""
 echo "[G6/G8] 텍스트:이미지 비율 + i18n 가능성 (scope=${TARGET_SCOPE})"
 # shellcheck disable=SC2086
-G68_JSON=$(node "${SCRIPT_DIR}/check-text-ratio.mjs" $TARGET_SET 2>/tmp/g68.err || true)
+G68_JSON=$(node "$G6_SCRIPT" $TARGET_SET 2>/tmp/g68.err || true)
 if echo "$G68_JSON" | grep -q '"g6":[[:space:]]*"PASS"'; then
   G6_STATUS="PASS"
 else
@@ -205,7 +238,7 @@ if ! command -v npx >/dev/null 2>&1; then
 elif ! npx --no-install lhci --version >/dev/null 2>&1; then
   echo "  ⚠ @lhci/cli 미설치 → G7 SKIP (설치: npm i -D @lhci/cli lighthouse)"
 else
-  url="http://127.0.0.1:5173/__preview/${section}"
+  url="$(printf "$G7_URL_FMT" "$PREVIEW_BASE_URL" "$section")"
   if curl -sSf -o /dev/null "$url" 2>/dev/null; then
     npx --no-install lighthouse "$url" --only-categories=accessibility,seo \
       --output=json --output-path=/tmp/lh.json --chrome-flags="--headless" \
