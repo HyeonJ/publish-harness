@@ -23,8 +23,10 @@
 #                            (tokens.css, tailwind.config.js, components-spec.md 포함)
 #   --component-url <url>    figma 모드 전용. Component/DS 페이지 URL.
 #                            지정 시 토큰 추출이 그 페이지만 스캔 + 레이어명 기반 네이밍.
-#   --template <name>        출력 템플릿: vite-react-ts (default) | html-static.
+#   --template <name>        출력 템플릿: vite-react-ts (default) | html-static | nextjs-app-router.
 #                            html-static 은 figma 모드만 지원 (spec×html-static 은 mismatch).
+#                            nextjs-app-router 는 figma/spec 양 모드 지원
+#                            (figma 검증 미완료 — docs/template-support-matrix.md §검증 상태 참조).
 #
 # 환경변수:
 #   FIGMA_TOKEN     figma 모드 필수 (extract-tokens 호출용). spec 모드는 불필요.
@@ -96,8 +98,11 @@ case "$TEMPLATE" in
       exit 2
     fi
     ;;
+  nextjs-app-router)
+    : # 양 mode 호환. figma 검증 미완료 (코드만), spec 검증 완료
+    ;;
   *)
-    echo "ERROR: 알 수 없는 --template: $TEMPLATE (vite-react-ts | html-static)" >&2
+    echo "ERROR: 알 수 없는 --template: $TEMPLATE (vite-react-ts | html-static | nextjs-app-router)" >&2
     exit 2
     ;;
 esac

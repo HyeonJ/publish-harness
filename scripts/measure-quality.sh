@@ -66,6 +66,13 @@ case "$TEMPLATE" in
     G6_SCRIPT="${SCRIPT_DIR}/check-text-ratio-html.mjs"
     G7_URL_FMT="%s/__preview/%s/"
     ;;
+  nextjs-app-router)
+    # JSX 산출물이라 vite-react-ts 와 동일 게이트 재사용.
+    # G7 URL 패턴은 next dev 의 trailing slash 정책 따라 vite 와 동일 (no-trailing).
+    G4_SCRIPT="${SCRIPT_DIR}/check-token-usage.mjs"
+    G6_SCRIPT="${SCRIPT_DIR}/check-text-ratio.mjs"
+    G7_URL_FMT="%s/__preview/%s"
+    ;;
   *)
     echo "ERROR: 알 수 없는 template: $TEMPLATE" >&2
     exit 2

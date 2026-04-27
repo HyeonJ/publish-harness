@@ -64,12 +64,13 @@ model: sonnet
 
 ## Template 분기 인지
 
-작업 시작 시 `docs/project-context.md` 의 `template:` 필드를 읽어 **vite-react-ts** / **html-static** 중 어느 출력 형식인지 결정한다. 필드가 없으면 vite-react-ts default. 이 결정이 **에셋 base path · 산출물 경로 · 게이트 호출 디렉토리** 모두에 영향을 준다.
+작업 시작 시 `docs/project-context.md` 의 `template:` 필드를 읽어 **vite-react-ts** / **html-static** / **nextjs-app-router** 중 어느 출력 형식인지 결정한다. 필드가 없으면 vite-react-ts default. 이 결정이 **에셋 base path · 산출물 경로 · 게이트 호출 디렉토리** 모두에 영향을 준다.
 
 | Template | 산출물 경로 | 에셋 base | 게이트 스크립트 (자동 분기) |
 |---|---|---|---|
 | `vite-react-ts` (기존) | `src/components/sections/{page}/{Section}.tsx` | `src/assets/{section}/...` | `check-token-usage.mjs` / `check-text-ratio.mjs` |
 | `html-static` (Stage 2) | `public/__preview/{section}/index.html` (+ `public/css/{section}.css` 선택) | `public/assets/{section}/...` | `check-token-usage-html.mjs` / `check-text-ratio-html.mjs` |
+| `nextjs-app-router` (Stage 3) | `src/app/{route}/page.tsx` (페이지) / `src/app/__preview/{section}/page.tsx` (preview) | `public/assets/{section}/...` | `check-token-usage.mjs` / `check-text-ratio.mjs` (vite와 동일 재사용) |
 
 게이트 호출은 `measure-quality.sh` 가 알아서 분기 → 워커는 template 무관하게 `bash scripts/measure-quality.sh ...` 호출.
 
@@ -193,6 +194,92 @@ model: sonnet
 7. JS 프레임워크 추가 금지 (jQuery / htmx / Alpine 모두 금지)
 8. JSX → HTML 속성 변환 (reference 가 React CDN 형태면): `className` → `class`, `htmlFor` → `for`, self-closing `<img />` → `<img>`, `style={{...}}` 객체 → `style="..."` 문자열
 9. 반응형은 CSS 미디어쿼리로 (Tailwind breakpoint 없음)
+
+#### template: nextjs-app-router (Stage 3 신규)
+
+산출물 패턴 (App Router 표준):
+- 페이지: `src/app/{route}/page.tsx` (예: `src/app/store/cart/page.tsx`)
+- 동적 라우트: `src/app/{route}/[id]/page.tsx`
+- 레이아웃: `src/app/{route}/layout.tsx` (선택, 라우트 그룹별 공통 chrome)
+- Preview: `src/app/__preview/{section}/page.tsx` (G7 Lighthouse 측정 진입점)
+- 메타데이터: 페이지마다 `export const metadata: Metadata` 또는 `generateMetadata` (public 페이지 SEO)
+
+규칙 (lite 하네스 nextjs-app-router 절대 규칙):
+1. **JSX 게이트는 vite-react-ts 와 동일** (G4/G5/G6/G8/G10 그대로 작동) — 토큰만 사용, 시맨틱 HTML, 텍스트는 JSX 트리에
+2. **'use client' directive**:
+   - `useState`, `useEffect`, `onClick`, `onChange` 등 클라이언트 hook/이벤트 사용 시 파일 첫 줄에 `'use client';` 명시
+   - 정적 콘텐츠만(데이터 fetch + 렌더만)이면 directive 없이 RSC(서버 컴포넌트) 로 둠 — 번들 크기 ↓ + SEO ↑
+   - 의심스러우면 일단 client. 점진 최적화 가능
+3. **`next/image` 강제**: `<img>` 직접 사용 금지. `import Image from "next/image"` + `<Image src alt width height />`
+   - 외부 URL은 `next.config.mjs` 의 `images.domains` 또는 `remotePatterns` 등록 필요
+4. **`next/link` 강제**: `<a href="/">` 직접 사용 금지 (외부 링크 제외). `import Link from "next/link"` + `<Link href="/path">`
+5. **`next/font`**: 폰트 import 는 `next/font/google` 또는 `next/font/local` 사용 권장. 단 본 프로젝트는 `tokens.css` 의 `var(--font-display)` 사용이 우선 (font-face 는 fonts.css 에서 관리)
+6. **metadata API**: public 페이지(SEO 노출)에 `export const metadata: Metadata = { title, description, openGraph, ... }` 명시
+   - admin/internal 페이지는 `metadata: { robots: { index: false } }` 로 인덱싱 차단
+7. **import alias**: `@/*` → `src/*` (`tsconfig.json` paths 매핑) — `@/components/Foo`, `@/lib/api`
+8. **monorepo 의 공유 패키지**: `@chapter/ui` 같은 workspace 패키지 import 시 `next.config.mjs` 의 `transpilePackages: ["@chapter/ui"]` 추가
+9. **반응형**: vite-react-ts 와 동일 (Tailwind `md:`/`lg:` prefix)
+
+JSX 산출 패턴 — **client 컴포넌트 예시**:
+```tsx
+'use client';
+
+import { useState } from 'react';
+import { Button } from '@chapter/ui';
+
+export default function CartPage() {
+  const [count, setCount] = useState(0);
+  return (
+    <main style={{ padding: 24 }}>
+      <h1>장바구니</h1>
+      <Button onClick={() => setCount(c => c + 1)}>담기 ({count})</Button>
+    </main>
+  );
+}
+```
+
+JSX 산출 패턴 — **server 컴포넌트 + metadata 예시**:
+```tsx
+import type { Metadata } from 'next';
+import { BookCover } from '@chapter/ui';
+
+export const metadata: Metadata = {
+  title: '서점 — Chapter',
+  description: '학습자를 위한 디지털 서점',
+};
+
+export default async function StoreHomePage() {
+  // 서버에서 데이터 fetch (RSC 의 강점)
+  const books = await fetchFeaturedBooks();
+  return (
+    <main>
+      <h1>이번 주 추천</h1>
+      <ul>
+        {books.map(b => <li key={b.id}><BookCover color={b.color} title={b.title} /></li>)}
+      </ul>
+    </main>
+  );
+}
+```
+
+Preview 라우트 (G7/G1 측정용) — `src/app/__preview/{section}/page.tsx`:
+```tsx
+'use client'; // interactive demo면 client, 정적 demo면 directive 생략
+
+import { Button } from '@chapter/ui';
+
+export default function ButtonPreview() {
+  return (
+    <main style={{ padding: 24 }}>
+      <h1>Button preview</h1>
+      <Button variant="primary">결제하기</Button>
+      <Button variant="outlined">플랜 관리</Button>
+    </main>
+  );
+}
+```
+
+페이지 라우트는 `app/{route}/page.tsx`, preview 는 `app/__preview/{section}/page.tsx`. 공유 layout 이 필요하면 `app/{route}/layout.tsx`.
 
 ### §반응형 규칙 — Mobile-first + Figma 디자인 우선
 

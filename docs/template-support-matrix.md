@@ -10,8 +10,8 @@ publish-harness 가 어떤 **(소스 모드 × 출력 템플릿)** 조합을 지
 | `spec`  | `vite-react-ts` | ✅ 지원 | 기존 (핸드오프 번들 임포트) |
 | `figma` | `html-static` | ✅ 지원 (M1~M7 통과) | 정적 랜딩/마케팅 페이지 용 (Stage 2 완료). 첫 스모크: Modern Retro Beverage Brand 의 Home > About 섹션 |
 | `spec`  | `html-static` | ❌ 제외 | 의미 mismatch — §제외 절 참조 |
-| `figma` | `next-app-router` | 🔜 로드맵 | SSR/ISR 필요할 때 |
-| `spec`  | `next-app-router` | 🔜 로드맵 | 컴포넌트 라이브러리 + SSR |
+| `figma` | `nextjs-app-router` | 🟡 코드 추가 / 검증 미완 | 분기 코드(bootstrap/measure-quality/section-worker)는 동일하지만 figma 모드 실증 보류. 다음 figma 신규 프로젝트 도래 시 검증 |
+| `spec`  | `nextjs-app-router` | ✅ 지원 (Stage 3) | SEO/SSR 필요한 commerce/store 용. 첫 스모크: chapter store (예정) |
 | `figma` | `rn-expo` | 🔜 로드맵 | 모바일 |
 | `spec`  | `rn-expo` | 🔜 로드맵 | 모바일 컴포넌트 라이브러리 |
 | `figma` | server-side templates (Thymeleaf · JSP · Blade · Django template) | 🔜 Stage 3+ | 실제 사용 환경 나올 때 결정 |
@@ -62,13 +62,25 @@ html-static 에는 이 세 축을 표현할 런타임이 없다:
 - **project-context.md** 신규 필드: `template:` / `preview_base_url:`
 - **산출물 단위**: `public/__preview/{section}/index.html` 한 파일 (fragment + preview 라우팅 동시 해결)
 
-### Stage 3+ — 실제 use case 기반 (TBD)
+### Stage 3 — `{spec, figma} × nextjs-app-router` (진행 중)
+
+**실제 use case**: SEO/SSR 이 매출에 직결되는 상점/마케팅 페이지. 검색 노출 + OG 미리보기 + 서버 렌더 + 이미지 최적화가 필요한 곳.
+
+구현된 분기 (Stage 3 — 2026-04-27):
+
+- **템플릿**: `templates/nextjs-app-router/` — App Router 표준 (`src/app/{layout,page,globals.css}.tsx`)
+- **bootstrap.sh**: `--template nextjs-app-router` 옵션 추가, 양 모드 호환
+- **measure-quality.sh**: vite-react-ts 의 G4/G6 게이트 재사용 (JSX 산출이라 동일 파서 작동)
+- **section-worker.md**: `template: nextjs-app-router` 서브섹션 (`'use client'` 가이드, `next/image`/`next/link` 강제, `generateMetadata` SEO, `transpilePackages` monorepo 지원)
+- **검증 매트릭스**: spec 모드는 chapter store 로 실증 예정. figma 모드는 코드만 작성, 다음 figma 프로젝트로 미룸 (YAGNI 원칙)
+
+### Stage 4+ — 실제 use case 기반 (TBD)
 
 현재 후보:
 
 - `figma × server-side templates` (Thymeleaf · JSP · Blade · Django template) — 서버사이드 페이지 fragment
-- `{figma, spec} × next-app-router` — SSR/ISR 지원 React
-- `{figma, spec} × rn-expo` — 모바일
+- `{figma, spec} × rn-expo` — 모바일 React Native
+- `figma × nextjs-app-router` — 검증 보류분 회수
 
 우선순위는 **실제 팀/프로젝트 use case 가 확정될 때** 결정한다. "확장 가능성" 만으로 구현하지 않는다 (YAGNI).
 
@@ -89,3 +101,4 @@ html-static 에는 이 세 축을 표현할 런타임이 없다:
   - bootstrap.sh 의 _lib/ 복사를 명시 1파일 → `cp -r` 디렉토리 통째로 (R1-R3 자동 포함).
   회귀 검증: G4/G6/G8 fixture 4종 + G10 회귀 (cebf92c) + 신규 working tree 케이스 모두 동일 결과 PASS/FAIL 보존.
 - 2026-04-27: **G10 write-protected paths 게이트 구현 + 회귀 검증 통과**. SSoT (`scripts/write-protected-paths.json`) + `check-write-protection.mjs` + `measure-quality.sh` 통합. `section-worker.md` §금지 절을 SSoT 직접 인용으로 머신리더블화 + §feedback-loop 에 `WRITE_PROTECTION` 카테고리 추가. 회귀 검증: home-flavors commit (`cebf92c`) 의 `public/css/tokens.css` 변경이 G10 FAIL 로 정확히 잡힘. 다른 home-* 7 commit 모두 G10 PASS. 향후 같은 패턴(tokens.css/fonts.css/tailwind.config/components-spec.md SSoT 변경) 자동 차단 보장.
+- 2026-04-27: **Stage 3 — `nextjs-app-router` 템플릿 추가 (코드 완료 / 검증 분리)**. `templates/nextjs-app-router/` 스캐폴드 (App Router + Tailwind + tokens.css), `bootstrap.sh --template nextjs-app-router` 분기 (양 모드 호환), `measure-quality.sh` 분기 (vite-react-ts 게이트 재사용), `section-worker.md` 에 Next.js 가이드라인 (RSC/'use client'/next/image/metadata) 추가. 검증 매트릭스: spec 은 chapter store 로 실증 예정, figma 는 다음 figma 프로젝트 도래 시 (YAGNI).
