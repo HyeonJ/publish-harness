@@ -80,4 +80,12 @@ html-static 에는 이 세 축을 표현할 런타임이 없다:
 - 2026-04-27: **Home 1 페이지 종단 통과** — 8 섹션 (Header/CTA/About/Featured/Product Grid/Flavors/Stocklist/Footer) 모두 G4/G5/G6/G8 PASS. 워커 spawn 8회 (직렬), retry 평균 0.4 회 (대부분 1차 PASS, G6 raster-heavy 휴리스틱에 두 섹션이 1회 자체 수정 후 PASS). 부수 발견: home-flavors 워커가 `tokens.css` 에 `--brand-3` 직접 추가 — 워커 §금지 위반 (figma 모드는 extract-tokens.sh 만 tokens.css 수정 가능). 후속 fix-and-promote 후보.
 - 2026-04-27: **D1 결정 보강 (옵션 C)** — 페이지 통합본 (`public/{page}.html`, home 만 `public/index.html`) 을 정식 산출물로 격상. `assemble-page-preview.mjs` CLI 가 `--page/--sections/--out` 옵션 + default 경로 자동 결정. 섹션 단독 preview (`public/__preview/<section>/`) 는 G1/G7 측정·디버그·retry 단위로 유지. SKILL.md Phase 4 에 어셈블리 단계 명시. 회귀 검증: smoke-modern-retro 의 Home 8 섹션이 `public/index.html` 한 파일로 통합, http://127.0.0.1:5176/ 200 응답 ✓.
 - 2026-04-27: 부수 fix — `templates/html-static/.gitignore` 누락 보강 (figma-screenshots/ 같은 임시 파일이 부트한 프로젝트마다 git 추적되던 버그).
+- 2026-04-27: **Simplify 회고 — high ROI 7건 정리**. 3 에이전트 (reuse / quality / efficiency) 병렬 review 결과:
+  - R1-R3: `scripts/_lib/` SSoT 도입 (`walk.mjs` / `color-tokens.mjs` / `text-ratio-judge.mjs`) — 게이트 4종이 공유. html/react 변형 표류 차단, 약 36줄 순감.
+  - Q1: bootstrap.sh 의 `rm -rf src tmp` 사고 위험 → `cleanup_html_static_post_extract()` 함수 + `rmdir` 안전화 (빈 디렉토리만).
+  - Q2: bootstrap.sh sed placeholder 7개 중복 → `render_template()` 함수 통합. 새 placeholder 추가 시 1곳만.
+  - Q6: `assemble-page-preview.mjs` legacy positional 부채 제거 (신규 스크립트인데 미리 짊어진 deprecation).
+  - E1: `check-write-protection.mjs` 의 working tree 케이스에서 `git diff` 3회 → `git status --porcelain` 1회 (Windows fork 비용 절감).
+  - bootstrap.sh 의 _lib/ 복사를 명시 1파일 → `cp -r` 디렉토리 통째로 (R1-R3 자동 포함).
+  회귀 검증: G4/G6/G8 fixture 4종 + G10 회귀 (cebf92c) + 신규 working tree 케이스 모두 동일 결과 PASS/FAIL 보존.
 - 2026-04-27: **G10 write-protected paths 게이트 구현 + 회귀 검증 통과**. SSoT (`scripts/write-protected-paths.json`) + `check-write-protection.mjs` + `measure-quality.sh` 통합. `section-worker.md` §금지 절을 SSoT 직접 인용으로 머신리더블화 + §feedback-loop 에 `WRITE_PROTECTION` 카테고리 추가. 회귀 검증: home-flavors commit (`cebf92c`) 의 `public/css/tokens.css` 변경이 G10 FAIL 로 정확히 잡힘. 다른 home-* 7 commit 모두 G10 PASS. 향후 같은 패턴(tokens.css/fonts.css/tailwind.config/components-spec.md SSoT 변경) 자동 차단 보장.
