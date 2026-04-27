@@ -15,6 +15,12 @@ figma-screenshots/
 /tmp/
 .lighthouseci/
 
+# 부트한 프로젝트의 산출물이 잘못 publish-harness 루트에 떨어진 경우 보호
+# (워커가 cwd 잘못 잡아 만들어버린 케이스 차단)
+/public/
+/baselines/
+/plan/
+
 # smoke-project는 로컬 검증용으로만 사용. 리포에는 scaffold만 유지.
 examples/smoke-project/
 
