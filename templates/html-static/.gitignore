@@ -1,0 +1,19 @@
+node_modules/
+dist/
+build/
+.DS_Store
+Thumbs.db
+*.log
+.env
+.env.local
+coverage/
+
+# 워커 임시
+figma-screenshots/
+/tmp/
+.lighthouseci/
+
+# IDE
+.idea/
+.vscode/
+*.swp

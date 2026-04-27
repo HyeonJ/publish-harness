@@ -310,12 +310,21 @@ docs/workflow.md §Phase 3 참고. 모든 게이트 평가 후 §5 반환 스키
 페이지의 모든 섹션 완료 후 오케스트레이터가 직접 수행:
 
 1. `PROGRESS.md` 해당 페이지 섹션 체크 확인
-2. dev 서버에서 실제 라우트 (`/`, `/about` 등) 1920 뷰포트 fullpage 캡처
-3. 육안 검증:
+2. **(template: html-static 만)** 페이지 통합본 어셈블리:
+   ```bash
+   node scripts/assemble-page-preview.mjs \
+     --page <page-name> \
+     --sections <s1,s2,...>
+   ```
+   기본 출력: `public/index.html` (home) / `public/<page>.html` (그 외).
+   섹션 단독 preview (`public/__preview/<section>/`) 는 G1/G7 측정·디버그·retry 단위로 유지.
+   자동 commit: `feat(<page>): 페이지 통합본 어셈블리 (X 섹션)`
+3. dev 서버에서 실제 라우트 (`/`, `/about` 등) 1920 뷰포트 fullpage 캡처
+4. 육안 검증:
    - 섹션 정렬 (좌측 치우침, 가로 스크롤, z-index 충돌)
    - 섹션 간 간격
-4. Lighthouse (있으면): `scripts/measure-quality.sh <page>-full <page-dir>` (optional)
-5. PROGRESS.md 페이지 완료 체크
+5. Lighthouse (있으면): `scripts/measure-quality.sh <page>-full <page-dir>` (optional)
+6. PROGRESS.md 페이지 완료 체크
 
 ## 자동 커밋 규칙
 

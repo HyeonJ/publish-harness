@@ -354,6 +354,8 @@ bash scripts/measure-quality.sh {section} public/__preview/{section} --files "$F
 
 `measure-quality.sh` 가 `docs/project-context.md` 의 `template:` 필드를 보고 G4/G6/G8 자동 분기. 호출자는 template 신경 안 써도 된다.
 
+**페이지 어셈블리 — 워커 책임 아님**: 워커는 섹션 단위 게이트만 책임. 페이지 통합본 (`public/{page}.html`) 은 페이지의 마지막 섹션 완료 후 오케스트레이터가 `assemble-page-preview.mjs` 를 직접 호출 — 워커는 호출 안 한다.
+
 게이트:
 - **G1** visual regression (`check-visual-regression.mjs`) — **선택**, 환경 미비 / baseline 없음은 SKIP
 - **G4** hex literal 차단 (`check-token-usage.mjs`)

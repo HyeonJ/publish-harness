@@ -34,6 +34,8 @@ bash scripts/bootstrap.sh --mode figma --template html-static <figma-url>
 
 지원 매트릭스: [`docs/template-support-matrix.md`](./template-support-matrix.md). `spec × html-static` 은 mismatch — bootstrap.sh 가 명시적으로 차단.
 
+**html-static 추가 빌드 단계**: 페이지의 모든 섹션 PASS 후 Phase 4 통합 검증 단계에서 `node scripts/assemble-page-preview.mjs --page <name> --sections <list>` 호출 → `public/<name>.html` (home 만 `public/index.html`) 정식 페이지 산출. 섹션 단독 preview (`public/__preview/<section>/`) 는 게이트 측정·디버그·retry 단위로 유지.
+
 자동 수행 (공통):
 1. Vite + React + TS + Tailwind + Router 스캐폴드
 2. `docs/project-context.md` 템플릿 (`{MODE}` / `{SOURCE_INFO}` 치환)
