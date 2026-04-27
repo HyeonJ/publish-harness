@@ -73,6 +73,7 @@
 | G5 | `eslint` (jsx-a11y) | 시맨틱 HTML, a11y |
 | G6 | `check-text-ratio.mjs` | 텍스트 baked-in raster 차단 |
 | G8 | `check-text-ratio.mjs` | JSX에 literal text 존재 (i18n 가능) |
+| G10 | `check-write-protection.mjs` | tokens.css / fonts.css / tailwind.config / components-spec.md 등 SSoT 수정 차단 |
 
 ### 선택적 게이트 (환경/baseline 있을 때만 평가)
 
