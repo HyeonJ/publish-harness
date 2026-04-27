@@ -166,6 +166,36 @@ if [ "$MODE" = "figma" ]; then
   fi
 fi
 
+# ---------- helper functions ----------
+
+# 모든 .tmpl 파일에 공통 placeholder 7종을 sed 치환. 새 placeholder 추가 시 한 곳만 수정.
+render_template() {
+  local src="$1"
+  local dst="$2"
+  sed -e "s|{PROJECT_NAME}|${PROJECT_NAME}|g" \
+      -e "s|{FIGMA_URL}|${FIGMA_URL_DISPLAY}|g" \
+      -e "s|{FILE_KEY}|${FILE_KEY_DISPLAY}|g" \
+      -e "s|{MODE}|${MODE}|g" \
+      -e "s|{SOURCE_INFO}|${SOURCE_INFO}|g" \
+      -e "s|{TEMPLATE}|${TEMPLATE}|g" \
+      -e "s|{PREVIEW_URL}|${PREVIEW_URL_DISPLAY:-http://127.0.0.1:5173}|g" \
+      "$src" > "$dst"
+}
+
+# extract-tokens.sh 가 만든 src/styles/{tokens,fonts}.css 를 public/css 로 이동.
+# html-static 템플릿 한정. 빈 디렉토리만 rmdir (rm -rf src 의 사고 위험 회피).
+cleanup_html_static_post_extract() {
+  if [ "$TEMPLATE" != "html-static" ]; then return 0; fi
+  mkdir -p public/css
+  [ -f "src/styles/tokens.css" ] && mv src/styles/tokens.css public/css/tokens.css \
+    && echo "  ✓ public/css/tokens.css (html-static 위치로 이동)"
+  [ -f "src/styles/fonts.css" ] && mv src/styles/fonts.css public/css/fonts.css \
+    && echo "  ✓ public/css/fonts.css (html-static 위치로 이동)"
+  rmdir src/styles 2>/dev/null || true
+  rmdir src 2>/dev/null || true
+  rm -rf tmp
+}
+
 echo "[bootstrap] mode=${MODE} template=${TEMPLATE} project=${PROJECT_NAME}"
 if [ "$MODE" = "figma" ]; then
   echo "[bootstrap] fileKey=${FILE_KEY}"
@@ -249,13 +279,7 @@ if [ -f index.html ]; then
 fi
 # PROGRESS.md 템플릿 → PROGRESS.md
 if [ -f PROGRESS.md.tmpl ]; then
-  sed -e "s|{PROJECT_NAME}|${PROJECT_NAME}|g" \
-      -e "s|{FIGMA_URL}|${FIGMA_URL_DISPLAY}|g" \
-      -e "s|{FILE_KEY}|${FILE_KEY_DISPLAY}|g" \
-      -e "s|{MODE}|${MODE}|g" \
-      -e "s|{SOURCE_INFO}|${SOURCE_INFO}|g" \
-      -e "s|{TEMPLATE}|${TEMPLATE}|g" \
-      PROGRESS.md.tmpl > PROGRESS.md
+  render_template PROGRESS.md.tmpl PROGRESS.md
   rm -f PROGRESS.md.tmpl
 fi
 
@@ -268,7 +292,7 @@ cp -r "$HARNESS_DIR/.claude/skills" .claude/
 # ---------- 4. scripts/ 복사 ----------
 echo "[bootstrap] 4/9 scripts/ 복사"
 mkdir -p scripts/_lib
-cp "$HARNESS_DIR/scripts/_lib/load-figma-token.sh" scripts/_lib/
+cp -r "$HARNESS_DIR/scripts/_lib/." scripts/_lib/
 cp "$HARNESS_DIR/scripts/figma-rest-image.sh" scripts/
 cp "$HARNESS_DIR/scripts/extract-tokens.sh" scripts/
 cp "$HARNESS_DIR/scripts/_extract-tokens-analyze.mjs" scripts/
@@ -295,14 +319,7 @@ cp "$HARNESS_DIR/docs/team-playbook.md" docs/
 # project-context.md.tmpl → project-context.md (치환)
 if [ -f "$HARNESS_DIR/docs/project-context.md.tmpl" ]; then
   PREVIEW_URL_DISPLAY="http://127.0.0.1:5173"
-  sed -e "s|{PROJECT_NAME}|${PROJECT_NAME}|g" \
-      -e "s|{FIGMA_URL}|${FIGMA_URL_DISPLAY}|g" \
-      -e "s|{FILE_KEY}|${FILE_KEY_DISPLAY}|g" \
-      -e "s|{MODE}|${MODE}|g" \
-      -e "s|{SOURCE_INFO}|${SOURCE_INFO}|g" \
-      -e "s|{TEMPLATE}|${TEMPLATE}|g" \
-      -e "s|{PREVIEW_URL}|${PREVIEW_URL_DISPLAY}|g" \
-      "$HARNESS_DIR/docs/project-context.md.tmpl" > docs/project-context.md
+  render_template "$HARNESS_DIR/docs/project-context.md.tmpl" docs/project-context.md
 fi
 
 # ---------- 6. CLAUDE.md 복사 ----------
@@ -342,16 +359,7 @@ if [ "$MODE" = "figma" ]; then
     fi
   fi
 
-  # html-static 의 경우 extract-tokens 가 만든 src/styles/{tokens,fonts}.css 를
-  # public/css/ 로 이동 (vite 와 다른 위치). tmp/ 임시 파일도 정리.
-  if [ "$TEMPLATE" = "html-static" ]; then
-    mkdir -p public/css
-    [ -f "src/styles/tokens.css" ] && mv src/styles/tokens.css public/css/tokens.css \
-      && echo "  ✓ public/css/tokens.css (html-static 위치로 이동)"
-    [ -f "src/styles/fonts.css" ] && mv src/styles/fonts.css public/css/fonts.css \
-      && echo "  ✓ public/css/fonts.css (html-static 위치로 이동)"
-    rm -rf src tmp
-  fi
+  cleanup_html_static_post_extract
 else
   # spec 모드: handoff 파일을 프로젝트에 주입
   echo "[bootstrap] 8/9 handoff 번들 임포트 (spec 모드)"
