@@ -395,6 +395,7 @@ node scripts/check-visual-regression.mjs \
 - [x] **Feedback loop** — 3단계 자동 재시도 + 9개 실패 카테고리 분류
 - [x] 첫 스모크 (Chapter BrandMark, spec 모드) 통과 + G5 eslint 버그 발견·수정
 - [x] **`figma × html-static`** (`templates/html-static/`) — Figma 디자인을 정적 랜딩/마케팅 HTML 로 변환 (Stage 2 M1~M7 완료, 종단 스모크 통과)
+- [x] **`figma × html-static` Home 1 페이지 종단** — Modern Retro Beverage Brand 의 Home 페이지 8 섹션(Header/CTA/About/Featured/Product Grid/Flavors/Stocklist/Footer) 모두 G4-G8 PASS, retry 평균 0.4 회
 
 ### 다음 후보
 - [ ] G9 brand-guardrails 자동 게이트 (spec 모드에서 Forbidden Patterns 위반 검출)
