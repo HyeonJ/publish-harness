@@ -27,39 +27,19 @@
  *   3 --diff 모드: 영향받는 섹션 있음 (exit 0 과 차별하려고 분리)
  */
 
-import { readFileSync, readdirSync, statSync } from "node:fs";
-import { join, extname, relative } from "node:path";
+import { readFileSync } from "node:fs";
+import { relative } from "node:path";
 import { parse } from "@babel/parser";
 import traverseModule from "@babel/traverse";
+import { walkByExt } from "./_lib/walk.mjs";
+import { HEX_PATTERN, RGB_PATTERN, ALLOWED_COLOR_LITERALS } from "./_lib/color-tokens.mjs";
 
 const traverse = traverseModule.default ?? traverseModule;
 
-const HEX_PATTERN = /#[0-9A-Fa-f]{3,8}\b/g;
-const RGB_PATTERN = /rgba?\(\s*\d+[\s,]/g;
+const TSX_JSX_EXTS = new Set([".tsx", ".jsx"]);
 const TW_ARB_COLOR_PATTERN = /(?:text|bg|border|fill|stroke|ring|shadow|from|via|to|divide|outline|accent|caret|decoration)-\[#[0-9A-Fa-f]{3,8}\]/g;
 const TW_ARB_SPACING_PATTERN = /(?:p|m|gap|top|left|right|bottom|inset|w|h|min-w|min-h|max-w|max-h|translate|space)-\w*\[\-?\d+(?:\.\d+)?px\]/g;
-
-// 화이트리스트: 중립 값
-const ALLOWED_COLOR_LITERALS = new Set([
-  "#fff", "#ffffff", "#FFF", "#FFFFFF",
-  "#000", "#000000",
-]);
-
-function walk(target, out = []) {
-  const st = statSync(target);
-  if (st.isFile()) {
-    if (extname(target) === ".tsx" || extname(target) === ".jsx") out.push(target);
-    return out;
-  }
-  // directory
-  for (const entry of readdirSync(target)) {
-    const full = join(target, entry);
-    const st2 = statSync(full);
-    if (st2.isDirectory()) walk(full, out);
-    else if (extname(full) === ".tsx" || extname(full) === ".jsx") out.push(full);
-  }
-  return out;
-}
+const walk = (target, out) => walkByExt(target, TSX_JSX_EXTS, out);
 
 function collectLiterals(file) {
   const code = readFileSync(file, "utf8");

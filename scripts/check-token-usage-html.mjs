@@ -10,55 +10,26 @@
  * 종료 코드: 0 PASS, 1 FAIL, 2 usage error.
  */
 
-import { readFileSync, readdirSync, statSync } from "node:fs";
-import { join, extname, relative } from "node:path";
+import { readFileSync } from "node:fs";
+import { extname, relative } from "node:path";
 import { parse as parseHtml } from "node-html-parser";
+import { walkByExt } from "./_lib/walk.mjs";
+import { scanCssTextForLiterals } from "./_lib/color-tokens.mjs";
 
-const HEX_PATTERN = /#[0-9A-Fa-f]{3,8}\b/g;
-const RGB_PATTERN = /rgba?\(\s*\d+[\s,]/g;
-const ALLOWED = new Set(["#fff", "#ffffff", "#FFF", "#FFFFFF", "#000", "#000000"]);
-
-function walk(target, out = []) {
-  const st = statSync(target);
-  if (st.isFile()) {
-    const ext = extname(target);
-    if (ext === ".html" || ext === ".css") out.push(target);
-    return out;
-  }
-  for (const entry of readdirSync(target)) {
-    const full = join(target, entry);
-    const st2 = statSync(full);
-    if (st2.isDirectory()) walk(full, out);
-    else {
-      const ext = extname(full);
-      if (ext === ".html" || ext === ".css") out.push(full);
-    }
-  }
-  return out;
-}
-
-function scanCssText(text) {
-  const failures = [];
-  const hexes = text.match(HEX_PATTERN) || [];
-  for (const h of hexes) if (!ALLOWED.has(h)) failures.push({ type: "hex-literal", value: h });
-  const rgbs = text.match(RGB_PATTERN) || [];
-  for (const r of rgbs) failures.push({ type: "rgb-literal", value: r.trim() });
-  return failures;
-}
+const HTML_CSS_EXTS = new Set([".html", ".css"]);
 
 function scanFile(file) {
   const code = readFileSync(file, "utf8");
-  const ext = extname(file);
-  if (ext === ".css") return scanCssText(code);
+  if (extname(file) === ".css") return scanCssTextForLiterals(code);
   // .html
   const failures = [];
   const root = parseHtml(code, { lowerCaseTagName: true });
   for (const styleEl of root.querySelectorAll("style")) {
-    failures.push(...scanCssText(styleEl.text || ""));
+    failures.push(...scanCssTextForLiterals(styleEl.text || ""));
   }
   for (const el of root.querySelectorAll("[style]")) {
     const s = el.getAttribute("style");
-    if (s) failures.push(...scanCssText(s));
+    if (s) failures.push(...scanCssTextForLiterals(s));
   }
   return failures;
 }
@@ -70,7 +41,7 @@ function main() {
     process.exit(2);
   }
   const files = [];
-  for (const t of targets) walk(t, files);
+  for (const t of targets) walkByExt(t, HTML_CSS_EXTS, files);
   if (files.length === 0) {
     console.error(`no .html/.css in: ${targets.join(", ")}`);
     process.exit(2);
