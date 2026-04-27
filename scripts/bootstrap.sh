@@ -254,6 +254,7 @@ if [ -f PROGRESS.md.tmpl ]; then
       -e "s|{FILE_KEY}|${FILE_KEY_DISPLAY}|g" \
       -e "s|{MODE}|${MODE}|g" \
       -e "s|{SOURCE_INFO}|${SOURCE_INFO}|g" \
+      -e "s|{TEMPLATE}|${TEMPLATE}|g" \
       PROGRESS.md.tmpl > PROGRESS.md
   rm -f PROGRESS.md.tmpl
 fi
@@ -290,11 +291,14 @@ cp "$HARNESS_DIR/docs/workflow.md" docs/
 cp "$HARNESS_DIR/docs/team-playbook.md" docs/
 # project-context.md.tmpl → project-context.md (치환)
 if [ -f "$HARNESS_DIR/docs/project-context.md.tmpl" ]; then
+  PREVIEW_URL_DISPLAY="http://127.0.0.1:5173"
   sed -e "s|{PROJECT_NAME}|${PROJECT_NAME}|g" \
       -e "s|{FIGMA_URL}|${FIGMA_URL_DISPLAY}|g" \
       -e "s|{FILE_KEY}|${FILE_KEY_DISPLAY}|g" \
       -e "s|{MODE}|${MODE}|g" \
       -e "s|{SOURCE_INFO}|${SOURCE_INFO}|g" \
+      -e "s|{TEMPLATE}|${TEMPLATE}|g" \
+      -e "s|{PREVIEW_URL}|${PREVIEW_URL_DISPLAY}|g" \
       "$HARNESS_DIR/docs/project-context.md.tmpl" > docs/project-context.md
 fi
 

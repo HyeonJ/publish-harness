@@ -2,11 +2,16 @@
 
 > bootstrap.sh가 이 템플릿을 `docs/project-context.md`로 복사한다. 프로젝트마다 수정해서 사용.
 
+template: {TEMPLATE}
+preview_base_url: {PREVIEW_URL}
+
 ## 1. 프로젝트 메타
 
 - **프로젝트명**: {PROJECT_NAME}
 - **mode**: {MODE} _(figma | spec)_
+- **template**: {TEMPLATE} _(vite-react-ts | html-static)_
 - **source**: {SOURCE_INFO}
+- **preview_base_url**: {PREVIEW_URL} _(measure-quality.sh G1/G7 의 dev 서버 URL)_
 - **Figma URL**: {FIGMA_URL} _(figma 모드만 의미 있음)_
 - **fileKey**: {FILE_KEY} _(figma 모드만 의미 있음)_
 - **Figma Component Page URL** (선택, figma 모드): _빈 값이면 전체 파일 스캔으로 토큰 추출_
