@@ -62,6 +62,17 @@ model: sonnet
   - 예: `["퍼플 그라데이션 금지", "이모지 아이콘 금지", "좌측 컬러 보더 카드 금지", "stock-photo book cover 금지"]`
   - 구현 직전 자체 점검 체크리스트로 사용. 위반 시 구현 수정 후 게이트 진입
 
+## Template 분기 인지
+
+작업 시작 시 `docs/project-context.md` 의 `template:` 필드를 읽어 **vite-react-ts** / **html-static** 중 어느 출력 형식인지 결정한다. 필드가 없으면 vite-react-ts default. 이 결정이 **에셋 base path · 산출물 경로 · 게이트 호출 디렉토리** 모두에 영향을 준다.
+
+| Template | 산출물 경로 | 에셋 base | 게이트 스크립트 (자동 분기) |
+|---|---|---|---|
+| `vite-react-ts` (기존) | `src/components/sections/{page}/{Section}.tsx` | `src/assets/{section}/...` | `check-token-usage.mjs` / `check-text-ratio.mjs` |
+| `html-static` (Stage 2) | `public/__preview/{section}/index.html` (+ `public/css/{section}.css` 선택) | `public/assets/{section}/...` | `check-token-usage-html.mjs` / `check-text-ratio-html.mjs` |
+
+게이트 호출은 `measure-quality.sh` 가 알아서 분기 → 워커는 template 무관하게 `bash scripts/measure-quality.sh ...` 호출.
+
 ## 4단계 (중단 없이 연속 실행)
 
 ### 1. 리서치 (5분 이내)
@@ -110,6 +121,12 @@ model: sonnet
 - 동적 에셋(GIF/MP4/VIDEO): 원본 다운로드 금지. 부모 컨테이너 nodeId로 정적 PNG 한 장만 export → `{name}-static.png`
 - 다운로드 후 `file` 명령으로 실제 타입 vs 확장자 검증. 불일치 시 rename
 
+**Template 분기 — 에셋 base path**:
+- `vite-react-ts` → `src/assets/{section}/{name}.{ext}` (기존)
+- `html-static`   → `public/assets/{section}/{name}.{ext}` (Stage 2 신규)
+
+워커는 `docs/project-context.md` 의 `template:` 필드를 보고 둘 중 하나를 선택. base path 만 다르고 다운로드 도구(`figma-rest-image.sh`) · leaf nodeId 사용 원칙은 동일.
+
 #### spec 모드
 
 - 대부분 에셋 필요 없음 — 토큰·Tailwind 클래스·inline SVG 로 해결
@@ -142,6 +159,40 @@ model: sonnet
    경로 `/__preview/{section-name}` 등록. `measure-quality.sh` G7 Lighthouse 측정이
    `http://127.0.0.1:5173/__preview/{section-name}` 고정 URL로 접근하므로 반드시 이 규약 준수.
 9. **반응형** (필수, 아래 §반응형 규칙 참조)
+
+#### template: html-static (Stage 2 신규)
+
+산출물: 섹션당 최대 3 파일.
+- `public/__preview/{section}/index.html` — 풀 HTML 문서 (head + body + 섹션 1개)
+- `public/css/{section}.css` — 섹션 전용 스타일 (50+ lines 면 분리, 짧으면 `<style>` 인라인 가능)
+- `public/js/{section}.js` — vanilla JS 인터랙션 (필요 시만)
+
+규칙 (lite 하네스 html-static 절대 규칙):
+1. 스타일 소스: `var(--*)` 토큰만. inline `style="..."` 또는 섹션 CSS 의 hex literal 금지 → G4 FAIL
+2. 시맨틱 HTML: `<section id="{section}">`, `<h1>~<h3>`, `<button>`. `<div onclick>` 금지 → G5 FAIL
+3. 텍스트는 element innerText 로. alt 에 문장 밀어넣기 금지 → G6 FAIL
+4. 이미지 alt 필수 (`@html-eslint/require-img-alt`)
+5. `<button type="button|submit|reset">` 명시 (`@html-eslint/require-button-type`)
+6. 공통 head boilerplate:
+   ```html
+   <!DOCTYPE html>
+   <html lang="ko">
+   <head>
+     <meta charset="utf-8">
+     <meta name="viewport" content="width=device-width,initial-scale=1">
+     <link rel="stylesheet" href="/css/tokens.css">
+     <link rel="stylesheet" href="/css/main.css">
+     <link rel="stylesheet" href="/css/{section}.css">
+     <title>{section} preview</title>
+   </head>
+   <body>
+     <section id="{section}">...</section>
+   </body>
+   </html>
+   ```
+7. JS 프레임워크 추가 금지 (jQuery / htmx / Alpine 모두 금지)
+8. JSX → HTML 속성 변환 (reference 가 React CDN 형태면): `className` → `class`, `htmlFor` → `for`, self-closing `<img />` → `<img>`, `style={{...}}` 객체 → `style="..."` 문자열
+9. 반응형은 CSS 미디어쿼리로 (Tailwind breakpoint 없음)
 
 ### §반응형 규칙 — Mobile-first + Figma 디자인 우선
 
@@ -289,6 +340,19 @@ bash scripts/measure-quality.sh <section_name> <section-dir> --viewport mobile
 - 공유 디렉토리의 다른 섹션이 pre-existing 이슈를 가질 수 있을 때
 
 생략 시: 디렉토리 전체 스캔 (이전 동작 유지, backwards compatible).
+
+**template: html-static 호출 패턴**:
+
+```bash
+# CSS/JS 파일을 생성한 경우만 --files 에 포함 (없는 path 넘기면 script error)
+FILES="public/__preview/{section}/index.html"
+[ -f "public/css/{section}.css" ] && FILES="$FILES public/css/{section}.css"
+[ -f "public/js/{section}.js" ]  && FILES="$FILES public/js/{section}.js"
+
+bash scripts/measure-quality.sh {section} public/__preview/{section} --files "$FILES"
+```
+
+`measure-quality.sh` 가 `docs/project-context.md` 의 `template:` 필드를 보고 G4/G6/G8 자동 분기. 호출자는 template 신경 안 써도 된다.
 
 게이트:
 - **G1** visual regression (`check-visual-regression.mjs`) — **선택**, 환경 미비 / baseline 없음은 SKIP
