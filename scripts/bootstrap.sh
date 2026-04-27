@@ -23,6 +23,8 @@
 #                            (tokens.css, tailwind.config.js, components-spec.md 포함)
 #   --component-url <url>    figma 모드 전용. Component/DS 페이지 URL.
 #                            지정 시 토큰 추출이 그 페이지만 스캔 + 레이어명 기반 네이밍.
+#   --template <name>        출력 템플릿: vite-react-ts (default) | html-static.
+#                            html-static 은 figma 모드만 지원 (spec×html-static 은 mismatch).
 #
 # 환경변수:
 #   FIGMA_TOKEN     figma 모드 필수 (extract-tokens 호출용). spec 모드는 불필요.
@@ -31,6 +33,7 @@
 set -u
 
 MODE="figma"
+TEMPLATE="vite-react-ts"
 FIGMA_URL=""
 PROJECT_NAME=""
 COMPONENT_URL=""
@@ -45,6 +48,10 @@ while [ $# -gt 0 ]; do
       ;;
     --from-handoff)
       HANDOFF_DIR="$2"
+      shift 2
+      ;;
+    --template)
+      TEMPLATE="$2"
       shift 2
       ;;
     --component-url)
@@ -76,6 +83,24 @@ while [ $# -gt 0 ]; do
 done
 
 PROJECT_NAME="${PROJECT_NAME:-$(basename "$PWD")}"
+
+# ---------- template × mode 조합 검증 (mode 단독 검증 전) ----------
+case "$TEMPLATE" in
+  vite-react-ts)
+    : # 기존 default. 모든 mode 호환
+    ;;
+  html-static)
+    if [ "$MODE" = "spec" ]; then
+      echo "ERROR: spec × html-static 조합은 지원하지 않음 (매트릭스 §제외)" >&2
+      echo "  상세: docs/template-support-matrix.md 의 §제외 절 참조" >&2
+      exit 2
+    fi
+    ;;
+  *)
+    echo "ERROR: 알 수 없는 --template: $TEMPLATE (vite-react-ts | html-static)" >&2
+    exit 2
+    ;;
+esac
 
 # ---------- 모드별 검증 ----------
 case "$MODE" in
@@ -141,7 +166,7 @@ if [ "$MODE" = "figma" ]; then
   fi
 fi
 
-echo "[bootstrap] mode=${MODE} project=${PROJECT_NAME}"
+echo "[bootstrap] mode=${MODE} template=${TEMPLATE} project=${PROJECT_NAME}"
 if [ "$MODE" = "figma" ]; then
   echo "[bootstrap] fileKey=${FILE_KEY}"
   [ -n "$COMPONENT_NODE_ID" ] && echo "[bootstrap] component-page nodeId=${COMPONENT_NODE_ID}"
@@ -155,8 +180,8 @@ if [ -z "${HARNESS_DIR:-}" ]; then
   HARNESS_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 fi
 
-if [ ! -d "$HARNESS_DIR/templates/vite-react-ts" ]; then
-  echo "ERROR: HARNESS_DIR 에 templates/vite-react-ts 없음: $HARNESS_DIR" >&2
+if [ ! -d "$HARNESS_DIR/templates/$TEMPLATE" ]; then
+  echo "ERROR: HARNESS_DIR 에 templates/$TEMPLATE 없음: $HARNESS_DIR" >&2
   exit 3
 fi
 
@@ -192,8 +217,8 @@ if [ "$EXISTING" -gt 0 ]; then
 fi
 
 # ---------- 1. 템플릿 복사 ----------
-echo "[bootstrap] 1/9 템플릿 복사"
-cp -r "$HARNESS_DIR/templates/vite-react-ts/." .
+echo "[bootstrap] 1/9 템플릿 복사 ($TEMPLATE)"
+cp -r "$HARNESS_DIR/templates/$TEMPLATE/." .
 
 # ---------- 2. 템플릿 치환 ----------
 echo "[bootstrap] 2/9 템플릿 placeholder 치환"
@@ -248,6 +273,8 @@ cp "$HARNESS_DIR/scripts/extract-tokens.sh" scripts/
 cp "$HARNESS_DIR/scripts/_extract-tokens-analyze.mjs" scripts/
 cp "$HARNESS_DIR/scripts/check-text-ratio.mjs" scripts/
 cp "$HARNESS_DIR/scripts/check-token-usage.mjs" scripts/
+cp "$HARNESS_DIR/scripts/check-text-ratio-html.mjs" scripts/
+cp "$HARNESS_DIR/scripts/check-token-usage-html.mjs" scripts/
 cp "$HARNESS_DIR/scripts/check-visual-regression.mjs" scripts/
 cp "$HARNESS_DIR/scripts/fetch-figma-baseline.sh" scripts/
 cp "$HARNESS_DIR/scripts/render-spec-baseline.mjs" scripts/
@@ -306,6 +333,16 @@ if [ "$MODE" = "figma" ]; then
       bash scripts/extract-tokens.sh "$FILE_KEY" \
         || echo "  ⚠ extract-tokens 실패 — 수동 재시도 필요"
     fi
+  fi
+
+  # html-static 의 경우 extract-tokens 가 만든 src/styles/tokens.css 를
+  # public/css/tokens.css 로 이동 (vite 와 다른 위치).
+  if [ "$TEMPLATE" = "html-static" ] && [ -f "src/styles/tokens.css" ]; then
+    mkdir -p public/css
+    mv src/styles/tokens.css public/css/tokens.css
+    rmdir src/styles 2>/dev/null || true
+    rmdir src 2>/dev/null || true
+    echo "  ✓ public/css/tokens.css (html-static 위치로 이동)"
   fi
 else
   # spec 모드: handoff 파일을 프로젝트에 주입
