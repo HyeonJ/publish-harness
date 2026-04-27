@@ -1,0 +1,17 @@
+{
+  "name": "publish-harness-html-static-template",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "serve -l 5173 public",
+    "lint": "eslint public",
+    "lint:fix": "eslint public --fix"
+  },
+  "devDependencies": {
+    "serve": "^14.2.4",
+    "eslint": "^8.57.0",
+    "@html-eslint/parser": "^0.25.0",
+    "@html-eslint/eslint-plugin": "^0.25.0",
+    "node-html-parser": "^6.1.13"
+  }
+}

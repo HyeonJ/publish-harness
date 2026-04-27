@@ -1,0 +1,19 @@
+/* 글로벌 reset + 타이포. 워커는 read-only.
+ * 디자인 토큰은 tokens.css 가 담당, 섹션별 스타일은 {section}.css 가 담당.
+ */
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  font-family: var(--font-sans, system-ui, -apple-system, sans-serif);
+  color: var(--text, currentColor);
+  background: var(--bg, transparent);
+}
+
+img, svg { display: block; max-width: 100%; height: auto; }
+
+button { font: inherit; cursor: pointer; }
+
+a { color: inherit; }
