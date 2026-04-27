@@ -8,7 +8,7 @@ publish-harness 가 어떤 **(소스 모드 × 출력 템플릿)** 조합을 지
 |---|---|---|---|
 | `figma` | `vite-react-ts` | ✅ 지원 | 기존 (figma-react-lite 계승) |
 | `spec`  | `vite-react-ts` | ✅ 지원 | 기존 (핸드오프 번들 임포트) |
-| `figma` | `html-static` | 🎯 **Stage 2** | 다음 작업 대상. 정적 랜딩/마케팅 페이지 용 |
+| `figma` | `html-static` | ✅ 지원 (M1~M6) | 정적 랜딩/마케팅 페이지 용 (Stage 2). 종단 스모크(M7)는 figma URL 제공 시 |
 | `spec`  | `html-static` | ❌ 제외 | 의미 mismatch — §제외 절 참조 |
 | `figma` | `next-app-router` | 🔜 로드맵 | SSR/ISR 필요할 때 |
 | `spec`  | `next-app-router` | 🔜 로드맵 | 컴포넌트 라이브러리 + SSR |
@@ -75,3 +75,4 @@ html-static 에는 이 세 축을 표현할 런타임이 없다:
 ## 변경 이력
 
 - 2026-04-24: 초기 작성. `spec × html-static` 제외 확정. Stage 2 방향을 `figma × html-static` 으로 전환. Stage 3 server-side templates 이름 TBD.
+- 2026-04-27: Stage 2 (`figma × html-static`) M1~M6 구현 완료. 게이트 스크립트 2개(`check-token-usage-html.mjs` / `check-text-ratio-html.mjs`), `@html-eslint` 기반 G5, `bootstrap.sh --template` 분기, `measure-quality.sh` 자동 분기, `section-worker.md` 서브섹션 추가. dummy 섹션으로 G4/G5/G6/G8 PASS + G4 FAIL 검증까지 통과. M7 종단 스모크는 사용자 figma URL 제공 시 진행.

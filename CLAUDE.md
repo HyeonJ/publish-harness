@@ -30,6 +30,10 @@
 4. 판별 불가 → 사용자에게 모드 질문
 5. 그 외 일반 프론트 작업 → 하네스 사용 안 함, 일반 React/Tailwind 규칙 적용
 
+## 출력 템플릿 판별
+
+`docs/project-context.md` 의 `template:` 필드 (`vite-react-ts` | `html-static`) 확인. 없으면 `vite-react-ts` default. bootstrap 시 `--template html-static` 으로 명시 가능 (단 `--mode figma` 만 지원, `spec × html-static` 은 매트릭스 §제외). `measure-quality.sh` 와 `section-worker` 가 이 필드를 보고 게이트 명령 / 산출물 경로를 분기. 지원 매트릭스: `docs/template-support-matrix.md`.
+
 ## 섹션/컴포넌트 파일 편집 규칙
 
 - `src/components/sections/**` 또는 `src/components/{ui,brand,foundation}/**` 파일 수정은 `section-worker` 워커에 위임. 오케스트레이터 직접 편집 금지
