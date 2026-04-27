@@ -34,6 +34,8 @@
 
 `docs/project-context.md` 의 `template:` 필드 (`vite-react-ts` | `html-static`) 확인. 없으면 `vite-react-ts` default. bootstrap 시 `--template html-static` 으로 명시 가능 (단 `--mode figma` 만 지원, `spec × html-static` 은 매트릭스 §제외). `measure-quality.sh` 와 `section-worker` 가 이 필드를 보고 게이트 명령 / 산출물 경로를 분기. 지원 매트릭스: `docs/template-support-matrix.md`.
 
+**html-static 산출물 두 종류** (D1 보강): 섹션 단독 preview (`public/__preview/<section>/index.html`, G1/G7 측정·디버그·retry 단위) + 페이지 통합본 (`public/index.html` 또는 `public/<page>.html`, 사용자 시각·배포 산출). 어셈블리는 Phase 4 통합 검증 단계에서 `assemble-page-preview.mjs` 호출.
+
 ## 섹션/컴포넌트 파일 편집 규칙
 
 - `src/components/sections/**` 또는 `src/components/{ui,brand,foundation}/**` 파일 수정은 `section-worker` 워커에 위임. 오케스트레이터 직접 편집 금지

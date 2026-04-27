@@ -398,6 +398,7 @@ node scripts/check-visual-regression.mjs \
 - [x] **`figma × html-static`** (`templates/html-static/`) — Figma 디자인을 정적 랜딩/마케팅 HTML 로 변환 (Stage 2 M1~M7 완료, 종단 스모크 통과)
 - [x] **`figma × html-static` Home 1 페이지 종단** — Modern Retro Beverage Brand 의 Home 페이지 8 섹션(Header/CTA/About/Featured/Product Grid/Flavors/Stocklist/Footer) 모두 G4-G8 PASS, retry 평균 0.4 회
 - [x] **G10 write-protected paths 게이트** — tokens.css / fonts.css / tailwind.config / components-spec.md 등 SSoT 수정을 결정적으로 차단. SSoT (`scripts/write-protected-paths.json`) + `check-write-protection.mjs` + `measure-quality.sh` 통합. 회귀 검증: home-flavors 의 tokens.css 변경이 G10 FAIL 로 정확히 잡힘 ✓ (다른 7 commit 은 모두 PASS)
+- [x] **D1 보강 — 페이지 통합본 정식 산출** — `public/{page}.html` (home → `public/index.html`) 정식 산출. 섹션 단독 preview 는 G1/G7 측정·디버그 단위로 유지. `assemble-page-preview.mjs` CLI 가 Phase 4 통합 검증 단계에서 자동 호출.
 
 ### 다음 후보
 - [ ] G9 brand-guardrails 자동 게이트 (spec 모드에서 Forbidden Patterns 위반 검출)
