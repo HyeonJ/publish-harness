@@ -17,13 +17,15 @@ import _traverse from "@babel/traverse";
 
 const traverse = _traverse.default || _traverse;
 
+// PATTERNS are shared /g regex literals consumed via String.prototype.match() (which uses an internal copy of lastIndex).
+// Switching to RegExp.prototype.exec() would require fresh regex instances per call to avoid lastIndex carryover.
 // 정규식 (className/style 문자열 검색용). AST 가 안 닿는 동적 합성 외에는 정규식이 단순/빠름.
 const PATTERNS = {
   positioning: /\b(?:absolute|fixed|sticky)\b/g,
   positioningInline: /position\s*:\s*(?:absolute|fixed|sticky)/g,
   transformTw: /\btranslate-(?:x|y)-\[\d+(?:\.\d+)?(?:px|em|rem)?\]/g,
   transformInline: /transform\s*:\s*translate/g,
-  negativeMargin: /(?<=[\s"'`])-m[trblxy]?-(?:\[\d+(?:\.\d+)?(?:px|em|rem)?\]|\d+)/g,
+  negativeMargin: /(?<![A-Za-z0-9_])-m[trblxy]?-(?:\[\d+(?:\.\d+)?(?:px|em|rem)?\]|\d+)/g,
   arbitraryPx: /\[(\d+(?:\.\d+)?)px\]/g,
   breakpoint: /\b(?:sm|md|lg|xl|2xl):(?:left|right|top|bottom|inset|translate-[xy])-\[\d+(?:\.\d+)?px\]/g,
   positioningHelper: /\b(?:inset|top|left|right|bottom)-\[\d+(?:\.\d+)?px\]/g,
@@ -114,6 +116,7 @@ export function detectAllowedEscapeRanges(filePath) {
  * import 그래프 추출 — first-party 만 재귀.
  */
 export function extractDependencyClosure(entryFile, projectRoot) {
+  // projectRoot reserved for future containment guard (e.g. stop traversal outside root). Current BFS walks the full graph from entry.
   const visited = new Set();
   const queue = [entryFile];
   while (queue.length) {
