@@ -24,6 +24,9 @@ figma-screenshots/
 # smoke-project는 로컬 검증용으로만 사용. 리포에는 scaffold만 유지.
 examples/smoke-project/
 
+# Superpowers brainstorming session artifacts
+.superpowers/
+
 # IDE
 .idea/
 .vscode/
