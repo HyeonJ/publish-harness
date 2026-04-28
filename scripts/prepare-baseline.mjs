@@ -1,0 +1,151 @@
+#!/usr/bin/env node
+/**
+ * prepare-baseline.mjs — figma/spec 모드 통합 baseline 준비.
+ *
+ * 결과:
+ *   baselines/<section>/<viewport>.png
+ *   baselines/<section>/anchors-<viewport>.json
+ *
+ * Usage:
+ *   node scripts/prepare-baseline.mjs \
+ *     --mode figma --section hero --viewports desktop,tablet,mobile \
+ *     --file-key <key> --section-node <id>
+ *   node scripts/prepare-baseline.mjs \
+ *     --mode spec --section hero --viewports desktop \
+ *     --reference-html docs/handoff/sections/hero.html
+ *
+ * --force 로 캐시 우회.
+ * --force 시 stdout 에 anchor diff report 출력.
+ */
+
+import { execSync } from "node:child_process";
+import { existsSync, mkdirSync, readFileSync, writeFileSync, unlinkSync } from "node:fs";
+import { resolve, dirname, join } from "node:path";
+import { readManifest } from "./_lib/anchor-manifest.mjs";
+
+function parseArgs(argv) {
+  const opts = { force: false };
+  for (let i = 0; i < argv.length; i++) {
+    if (argv[i] === "--force") { opts.force = true; continue; }
+    if (argv[i].startsWith("--")) { opts[argv[i].slice(2)] = argv[i + 1]; i++; }
+  }
+  return opts;
+}
+
+const opts = parseArgs(process.argv.slice(2));
+const required = ["mode", "section", "viewports"];
+for (const r of required) {
+  if (!opts[r]) { console.error(`ERROR: --${r} required`); process.exit(2); }
+}
+const viewports = opts.viewports.split(",").map((v) => v.trim());
+const baselineDir = resolve(`baselines/${opts.section}`);
+mkdirSync(baselineDir, { recursive: true });
+
+const SCRIPT_DIR = dirname(new URL(import.meta.url).pathname.replace(/^\/(\w):/, "$1:"));
+
+async function diffManifests(oldPath, newPath) {
+  const oldM = readManifest(oldPath);
+  const newM = readManifest(newPath);
+  if (!oldM) return [{ id: "(new manifest)", change: "INITIAL" }];
+  const oldMap = new Map(oldM.anchors.map((a) => [a.id, a]));
+  const newMap = new Map(newM.anchors.map((a) => [a.id, a]));
+  const changes = [];
+  for (const [id, n] of newMap) {
+    const o = oldMap.get(id);
+    if (!o) { changes.push({ id, change: "ADDED", role: n.role }); continue; }
+    if (o.role !== n.role) { changes.push({ id, change: "ROLE", from: o.role, to: n.role }); }
+    const dx = n.bbox.x - o.bbox.x;
+    const dy = n.bbox.y - o.bbox.y;
+    const dw = n.bbox.w - o.bbox.w;
+    const dh = n.bbox.h - o.bbox.h;
+    if (Math.abs(dx) + Math.abs(dy) + Math.abs(dw) + Math.abs(dh) > 0) {
+      changes.push({ id, change: "BBOX", delta: { x: dx, y: dy, w: dw, h: dh } });
+    }
+  }
+  for (const [id] of oldMap) {
+    if (!newMap.has(id)) changes.push({ id, change: "REMOVED" });
+  }
+  return changes;
+}
+
+async function prepareViewport(viewport) {
+  const pngPath = join(baselineDir, `${viewport}.png`);
+  const manifestPath = join(baselineDir, `anchors-${viewport}.json`);
+  let manifestBefore = null;
+  if (existsSync(manifestPath)) {
+    try { manifestBefore = readFileSync(manifestPath, "utf8"); } catch {}
+  }
+
+  // 캐싱: --force 아니면 mtime 비교는 fetch source 별로. 단순화 — 이미 존재하면 SKIP (force 외).
+  if (existsSync(pngPath) && existsSync(manifestPath) && !opts.force) {
+    return { viewport, status: "CACHED", pngPath, manifestPath };
+  }
+
+  if (opts.mode === "figma") {
+    if (!opts["file-key"] || !opts["section-node"]) {
+      throw new Error("figma 모드는 --file-key + --section-node 필요");
+    }
+    // 1) png
+    execSync(
+      `bash "${SCRIPT_DIR}/figma-rest-image.sh" ${opts["file-key"]} ${opts["section-node"]} "${pngPath}" --scale 2`,
+      { stdio: "inherit" }
+    );
+    // 2) anchors
+    execSync(
+      `node "${SCRIPT_DIR}/extract-figma-anchors.mjs" --file-key ${opts["file-key"]} --section-node ${opts["section-node"]} --section ${opts.section} --viewport ${viewport} --out "${manifestPath}"`,
+      { stdio: "inherit" }
+    );
+  } else if (opts.mode === "spec") {
+    if (!opts["reference-html"]) {
+      throw new Error("spec 모드는 --reference-html 필요");
+    }
+    // spec 모드 baseline + DOM anchor: Phase 6 LOW 위임 (M1 v3 한계). 현재는 png 만 생성.
+    // TODO(plan 단계 위임 #3): reference HTML 의 [data-anchor] 추출.
+    const refPath = resolve(opts["reference-html"]);
+    if (!existsSync(refPath)) throw new Error(`reference HTML not found: ${refPath}`);
+    // Playwright 로 reference 렌더 후 fullpage 캡처 — render-spec-baseline.mjs 흡수
+    // (구현은 인라인이 너무 큼 — 일단 외부 헬퍼 호출. 호환 위해 기존 render-spec-baseline.mjs 재사용)
+    execSync(
+      `node "${SCRIPT_DIR}/render-spec-baseline.mjs" --reference "${refPath}" --viewport ${viewport} --out "${pngPath}"`,
+      { stdio: "inherit" }
+    );
+    // anchor json: spec 모드는 partial strict — 자동 생성 시도하되 실패해도 OK
+    // (현재는 manifest 없음 = L2 SKIP, partial strict)
+  }
+
+  let diffReport = null;
+  if (opts.force && manifestBefore) {
+    // diff
+    const tmpPath = manifestPath + ".prev";
+    writeFileSync(tmpPath, manifestBefore);
+    diffReport = await diffManifests(tmpPath, manifestPath);
+    unlinkSync(tmpPath);
+  }
+  return { viewport, status: "PREPARED", pngPath, manifestPath, diffReport };
+}
+
+const results = [];
+for (const v of viewports) {
+  try {
+    results.push(await prepareViewport(v));
+  } catch (e) {
+    results.push({ viewport: v, status: "FAIL", reason: e.message });
+  }
+}
+
+console.log(JSON.stringify({ section: opts.section, mode: opts.mode, results }, null, 2));
+
+// --force 시 diff report 출력
+if (opts.force) {
+  for (const r of results) {
+    if (r.diffReport && r.diffReport.length) {
+      console.error(`\nAnchor changes (${r.viewport}):`);
+      for (const c of r.diffReport) {
+        console.error(`  ${c.id}: ${c.change}${c.delta ? ` ${JSON.stringify(c.delta)}` : ""}${c.from ? ` ${c.from} → ${c.to}` : ""}`);
+      }
+    }
+  }
+}
+
+const fail = results.some((r) => r.status === "FAIL");
+process.exit(fail ? 1 : 0);
