@@ -15,7 +15,7 @@
  *     --reference-html docs/handoff/sections/hero.html
  *
  * --force 로 캐시 우회.
- * --force 시 stdout 에 anchor diff report 출력.
+ * --force 시 stderr 에 anchor diff report 출력 (stdout 은 단일 JSON summary).
  */
 
 import { execSync } from "node:child_process";
@@ -73,7 +73,9 @@ async function prepareViewport(viewport) {
   const manifestPath = join(baselineDir, `anchors-${viewport}.json`);
   let manifestBefore = null;
   if (existsSync(manifestPath)) {
-    try { manifestBefore = readFileSync(manifestPath, "utf8"); } catch {}
+    try { manifestBefore = readFileSync(manifestPath, "utf8"); } catch {
+      // 파일이 existsSync ↔ readFileSync 사이에 사라졌거나 권한 flake — diff report best-effort
+    }
   }
 
   // 캐싱: --force 아니면 mtime 비교는 fetch source 별로. 단순화 — 이미 존재하면 SKIP (force 외).
@@ -87,12 +89,12 @@ async function prepareViewport(viewport) {
     }
     // 1) png
     execSync(
-      `bash "${SCRIPT_DIR}/figma-rest-image.sh" ${opts["file-key"]} ${opts["section-node"]} "${pngPath}" --scale 2`,
+      `bash "${SCRIPT_DIR}/figma-rest-image.sh" "${opts["file-key"]}" "${opts["section-node"]}" "${pngPath}" --scale 2`,
       { stdio: "inherit" }
     );
     // 2) anchors
     execSync(
-      `node "${SCRIPT_DIR}/extract-figma-anchors.mjs" --file-key ${opts["file-key"]} --section-node ${opts["section-node"]} --section ${opts.section} --viewport ${viewport} --out "${manifestPath}"`,
+      `node "${SCRIPT_DIR}/extract-figma-anchors.mjs" --file-key "${opts["file-key"]}" --section-node "${opts["section-node"]}" --section "${opts.section}" --viewport "${viewport}" --out "${manifestPath}"`,
       { stdio: "inherit" }
     );
   } else if (opts.mode === "spec") {
@@ -106,7 +108,7 @@ async function prepareViewport(viewport) {
     // Playwright 로 reference 렌더 후 fullpage 캡처 — render-spec-baseline.mjs 흡수
     // (구현은 인라인이 너무 큼 — 일단 외부 헬퍼 호출. 호환 위해 기존 render-spec-baseline.mjs 재사용)
     execSync(
-      `node "${SCRIPT_DIR}/render-spec-baseline.mjs" --reference "${refPath}" --viewport ${viewport} --out "${pngPath}"`,
+      `node "${SCRIPT_DIR}/render-spec-baseline.mjs" --reference "${refPath}" --viewport "${viewport}" --out "${pngPath}"`,
       { stdio: "inherit" }
     );
     // anchor json: spec 모드는 partial strict — 자동 생성 시도하되 실패해도 OK
@@ -115,11 +117,13 @@ async function prepareViewport(viewport) {
 
   let diffReport = null;
   if (opts.force && manifestBefore) {
-    // diff
     const tmpPath = manifestPath + ".prev";
     writeFileSync(tmpPath, manifestBefore);
-    diffReport = await diffManifests(tmpPath, manifestPath);
-    unlinkSync(tmpPath);
+    try {
+      diffReport = await diffManifests(tmpPath, manifestPath);
+    } finally {
+      unlinkSync(tmpPath);
+    }
   }
   return { viewport, status: "PREPARED", pngPath, manifestPath, diffReport };
 }
