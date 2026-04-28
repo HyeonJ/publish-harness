@@ -140,38 +140,57 @@ G6_STATUS="SKIP"
 G7_STATUS="SKIP"
 G8_STATUS="SKIP"
 G10_STATUS="SKIP"
+G11_STATUS="SKIP"
 
-# ---------- G1 visual regression (선택, playwright + pixelmatch) ----------
-echo "[G1] visual regression (viewport=${VIEWPORT}, baseline=${BASELINE})"
-G1_JSON=$(node "${SCRIPT_DIR}/check-visual-regression.mjs" \
-  --section "$section" \
-  --baseline "$BASELINE" \
-  --viewport "$VIEWPORT" 2>/tmp/g1.err || true)
+# ---------- G1 visual regression (strict default + LITE 옵트아웃) ----------
+echo "[G1] visual regression (section=${section})"
+G1_BASELINE_DIR="baselines/${section}"
+# 환경변수 LITE=1 이면 lite 모드 강제
+if [ "${LITE:-0}" = "1" ]; then
+  echo "  ⚠ LITE=1 — strict 옵트아웃 (G1 lite 호출)"
+  G1_JSON=$(node "${SCRIPT_DIR}/check-visual-regression.mjs" \
+    --section "$section" \
+    --baseline "${BASELINE:-${G1_BASELINE_DIR}/desktop.png}" \
+    --viewport "${VIEWPORT}" 2>/tmp/g1.err || true)
+elif [ -d "$G1_BASELINE_DIR" ]; then
+  # 사용 가능한 viewport 자동 감지
+  AVAIL_VIEWPORTS=""
+  for v in desktop tablet mobile; do
+    if [ -f "${G1_BASELINE_DIR}/${v}.png" ]; then
+      AVAIL_VIEWPORTS="${AVAIL_VIEWPORTS}${AVAIL_VIEWPORTS:+,}${v}"
+    fi
+  done
+  if [ -z "$AVAIL_VIEWPORTS" ]; then
+    AVAIL_VIEWPORTS="desktop"
+  fi
+  G1_JSON=$(node "${SCRIPT_DIR}/check-visual-regression.mjs" \
+    --section "$section" \
+    --baseline-dir "$G1_BASELINE_DIR" \
+    --viewports "$AVAIL_VIEWPORTS" \
+    --strict 2>/tmp/g1.err || true)
+else
+  # baseline 디렉토리 자체 부재 — strict 강제로 FAIL (legacy.json 도 없음)
+  G1_JSON='{"section":"'"$section"'","status":"FAIL","reason":"baselines/'"$section"'/ 부재 — prepare-baseline.mjs 실행 필요","strictEffective":false}'
+fi
 G1_RAW_STATUS=$(echo "$G1_JSON" | node -e "let j='';process.stdin.on('data',d=>j+=d);process.stdin.on('end',()=>{try{process.stdout.write(JSON.parse(j).status||'')}catch(e){}})" 2>/dev/null)
-
 case "$G1_RAW_STATUS" in
   PASS)
-    G1_STATUS="PASS"
-    G1_DETAIL="$G1_JSON"
+    G1_STATUS="PASS"; G1_DETAIL="$G1_JSON"
     echo "  ✓ G1 PASS"
     ;;
   FAIL)
-    G1_STATUS="FAIL"
-    G1_DETAIL="$G1_JSON"
-    FAIL=1
+    G1_STATUS="FAIL"; G1_DETAIL="$G1_JSON"; FAIL=1
     echo "  ❌ G1 FAIL"
     echo "    $G1_JSON"
     ;;
   SKIPPED|NO_BASELINE|BASELINE_UPDATED)
-    G1_STATUS="$G1_RAW_STATUS"
-    G1_DETAIL="$G1_JSON"
-    echo "  ⚠ G1 $G1_RAW_STATUS (차단 아님)"
+    G1_STATUS="$G1_RAW_STATUS"; G1_DETAIL="$G1_JSON"
+    echo "  ⚠ G1 $G1_RAW_STATUS"
     ;;
   *)
-    G1_STATUS="SKIP"
-    G1_DETAIL='{"status":"SKIP","reason":"script error"}'
+    G1_STATUS="SKIP"; G1_DETAIL='{"status":"SKIP","reason":"script error"}'
     cat /tmp/g1.err 2>/dev/null || true
-    echo "  ⚠ G1 SKIP (스크립트 에러 또는 의존성 미비)"
+    echo "  ⚠ G1 SKIP"
     ;;
 esac
 
@@ -283,6 +302,31 @@ else
   echo "  ❌ G10 FAIL"
 fi
 
+# ---------- G11 layout escape budget ----------
+echo ""
+echo "[G11] layout escape budget"
+G11_FILES=""
+if [ "$TARGET_SCOPE" = "files" ]; then
+  G11_FILES="$TARGET_SET"
+else
+  # 디렉토리 → 안의 .tsx/.jsx/.ts/.js 모두
+  G11_FILES=$(find "$dir" -type f \( -name "*.tsx" -o -name "*.jsx" -o -name "*.ts" -o -name "*.js" \) 2>/dev/null | tr '\n' ' ')
+fi
+if [ -z "$G11_FILES" ]; then
+  echo "  ⚠ G11 SKIP (no source files)"
+  G11_STATUS="SKIP"
+else
+  if node "${SCRIPT_DIR}/check-layout-escapes.mjs" --section "$section" --files "$G11_FILES" >/tmp/g11.out 2>/tmp/g11.err; then
+    G11_STATUS="PASS"
+    echo "  ✓ G11 PASS"
+  else
+    G11_STATUS="FAIL"
+    FAIL=1
+    cat /tmp/g11.out 2>/dev/null || true
+    echo "  ❌ G11 FAIL"
+  fi
+fi
+
 # ---------- JSON 결과 저장 ----------
 # G1_DETAIL 가 JSON 이면 그대로, 아니면 status 만
 if [ -z "$G1_DETAIL" ]; then
@@ -303,7 +347,8 @@ cat > "$OUT" <<EOF
   "G6_text_image_ratio": "$G6_STATUS",
   "G7_lighthouse": "$G7_STATUS",
   "G8_i18n": "$G8_STATUS",
-  "G10_write_protection": "$G10_STATUS"
+  "G10_write_protection": "$G10_STATUS",
+  "G11_layout_escapes": "$G11_STATUS"
 }
 EOF
 
@@ -311,7 +356,7 @@ echo ""
 echo "=================================="
 echo "결과 저장: $OUT"
 if [ "$FAIL" -eq 0 ]; then
-  echo "✓ G4/G5/G6/G8/G10 PASS (G1/G7 환경별)"
+  echo "✓ G4/G5/G6/G8/G10/G11 PASS (G1/G7 환경별)"
   exit 0
 else
   echo "❌ 품질 게이트 미통과. 구현 재검토 후 재실행."
