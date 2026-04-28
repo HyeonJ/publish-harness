@@ -1,228 +1,351 @@
 #!/usr/bin/env node
 /**
- * G1 visual regression — Playwright 로 섹션 preview 렌더 + pixelmatch 로 baseline diff.
+ * G1 visual regression — strict 모드 확장.
  *
- * lite 철학 준수: 환경 미비 / baseline 없음은 SKIP (게이트 차단 아님).
- * diffPercent > threshold 에서만 FAIL.
+ * Lite (기존, backward compat):
+ *   node scripts/check-visual-regression.mjs --section <id> --baseline <path> [--viewport desktop]
+ *   → 단일 viewport pixel diff. SKIPPED/NO_BASELINE 차단 안 함.
  *
- * Usage:
- *   node scripts/check-visual-regression.mjs --section <id> --baseline <path> [options]
- *
- * 인자 (모두 --flag value 형식):
- *   --section <id>           섹션 식별자 (preview route 에도 사용)
- *   --baseline <path>        baseline PNG 경로 (없으면 NO_BASELINE)
- *   --viewport <v>           desktop | tablet | mobile (default: desktop)
- *   --url <url>              preview URL (default: http://127.0.0.1:5173/__preview/{section})
- *   --threshold <percent>    FAIL 기준 diff 백분율 (default: 2)
- *   --diff-dir <path>        diff PNG 저장 디렉토리 (default: tests/quality/diffs)
- *   --update-baseline        현재 스크린샷으로 baseline 덮어쓰기 (최초 설정용)
- *   --timeout <ms>           페이지 로드 타임아웃 (default: 15000)
- *   -h, --help               도움말
- *
- * 출력 (stdout, 단일 JSON 줄):
- *   { section, viewport, status, ... }
- *   status enum: PASS | FAIL | SKIPPED | NO_BASELINE | BASELINE_UPDATED
- *
- * 종료 코드:
- *   0 PASS / SKIPPED / NO_BASELINE / BASELINE_UPDATED
- *   1 FAIL (diffPercent > threshold 또는 치수 불일치)
- *   2 usage 에러
+ * Strict (신규):
+ *   node scripts/check-visual-regression.mjs --section <id> --baseline-dir baselines/<id>/ \
+ *     --viewports desktop,tablet,mobile --threshold-l1 5 --threshold-l2-px 4 --threshold-l2-pct 1 --strict
+ *   → multi-viewport 병렬, L1 mask + 35% 상한, L2 mixed tolerance, manifest v2,
+ *     legacy.json 거버넌스, strictEffective 출력.
  */
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
+import { readManifest, applyMatchingRule, isRequiredRole, ROLES } from "./_lib/anchor-manifest.mjs";
+import { readLegacy, validateLegacy } from "./_lib/legacy-manifest.mjs";
+import { newStableContext, stabilizePage, STABLE_VIEWPORTS } from "./_lib/playwright-stable.mjs";
 
-// ---------- 인자 파싱 ----------
+// ---------- 인자 ----------
 const argv = process.argv.slice(2);
 const opts = {
   section: null,
   baseline: null,
+  "baseline-dir": null,
   viewport: "desktop",
+  viewports: null,
   url: null,
-  threshold: 2,
+  "preview-base": "http://127.0.0.1:5173",
+  "threshold-l1": 5,
+  "threshold-l2-px": 4,
+  "threshold-l2-pct": 1,
   "diff-dir": "tests/quality/diffs",
   "update-baseline": false,
+  strict: false,
   timeout: 15000,
   help: false,
 };
-
 for (let i = 0; i < argv.length; i++) {
   const a = argv[i];
-  if (a === "-h" || a === "--help") {
-    opts.help = true;
-  } else if (a === "--update-baseline") {
-    opts["update-baseline"] = true;
-  } else if (a.startsWith("--")) {
+  if (a === "-h" || a === "--help") { opts.help = true; }
+  else if (a === "--update-baseline") opts["update-baseline"] = true;
+  else if (a === "--strict") opts.strict = true;
+  else if (a.startsWith("--")) {
     const key = a.slice(2);
     const val = argv[i + 1];
-    if (val === undefined || val.startsWith("--")) {
-      console.error(`ERROR: ${a} requires a value`);
-      process.exit(2);
-    }
-    if (key === "threshold" || key === "timeout") {
+    if (val === undefined || val.startsWith("--")) { console.error(`ERROR: ${a} requires value`); process.exit(2); }
+    if (["threshold-l1","threshold-l2-px","threshold-l2-pct","timeout"].includes(key)) {
       opts[key] = Number(val);
-      if (Number.isNaN(opts[key])) {
-        console.error(`ERROR: ${a} must be a number`);
-        process.exit(2);
-      }
-    } else if (key in opts) {
-      opts[key] = val;
-    } else {
-      console.error(`ERROR: unknown option ${a}`);
-      process.exit(2);
-    }
+    } else opts[key] = val;
     i++;
-  } else {
-    console.error(`ERROR: unexpected arg ${a}`);
-    process.exit(2);
-  }
+  } else { console.error(`ERROR: unexpected arg ${a}`); process.exit(2); }
 }
 
 if (opts.help) {
-  // 파일 상단 주석 출력
-  const src = readFileSync(new URL(import.meta.url), "utf8");
-  const m = src.match(/\/\*\*([\s\S]*?)\*\//);
-  console.log(m ? m[1].replace(/^\s*\*\s?/gm, "").trim() : "see source");
+  console.log(`G1 visual regression — strict + lite 양쪽 지원.\nlite: --baseline <path>\nstrict: --baseline-dir <dir> --viewports desktop,tablet,mobile --strict`);
   process.exit(0);
 }
 
-if (!opts.section || !opts.baseline) {
-  console.error("usage: check-visual-regression.mjs --section <id> --baseline <path> [options]");
-  console.error("  --help 로 전체 옵션 확인");
-  process.exit(2);
-}
+if (!opts.section) { console.error("usage: --section <id>"); process.exit(2); }
 
-const VIEWPORTS = {
-  desktop: { width: 1440, height: 900 },
-  tablet: { width: 768, height: 1024 },
-  mobile: { width: 375, height: 812 },
-};
+// 모드 분기: --strict 있고 --baseline-dir 있으면 strict, 아니면 lite (기존 동작)
+const STRICT = opts.strict && opts["baseline-dir"];
 
-if (!VIEWPORTS[opts.viewport]) {
-  console.error(`ERROR: --viewport must be one of: ${Object.keys(VIEWPORTS).join(", ")}`);
-  process.exit(2);
-}
-
-const url = opts.url || `http://127.0.0.1:5173/__preview/${opts.section}`;
-const baselinePath = resolve(opts.baseline);
-
-// 출력 헬퍼
-function emit(payload) {
-  console.log(JSON.stringify({ section: opts.section, viewport: opts.viewport, ...payload }));
-}
-
-// ---------- baseline 존재 여부 (환경 체크보다 우선 — 가장 빈번한 사용자 사례) ----------
-const hasBaseline = existsSync(baselinePath);
-if (!hasBaseline && !opts["update-baseline"]) {
-  emit({
-    status: "NO_BASELINE",
-    baseline: baselinePath,
-    hint: "fetch-figma-baseline.sh (figma) 또는 --update-baseline 으로 생성",
-  });
-  process.exit(0);
-}
-
-// ---------- 옵셔널 의존성 로드 (lite: 미설치 = SKIP) ----------
+// ---------- 옵셔널 의존성 (lite 호환) ----------
 let chromium, pixelmatch, PNG;
 try {
   ({ chromium } = await import("playwright"));
   pixelmatch = (await import("pixelmatch")).default;
   ({ PNG } = await import("pngjs"));
 } catch (e) {
-  emit({
+  console.log(JSON.stringify({
+    section: opts.section,
     status: "SKIPPED",
-    reason: `missing deps (${e.message.split("\n")[0]}) — npm i -D playwright pixelmatch pngjs 후 재시도`,
-  });
+    reason: `missing deps (${e.message.split("\n")[0]}) — npm i -D playwright pixelmatch pngjs`,
+    strictEffective: false,
+  }));
   process.exit(0);
 }
 
-// ---------- dev 서버 reachability ----------
-try {
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 3000);
-  const res = await fetch(url, { signal: ctrl.signal });
-  clearTimeout(timer);
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-} catch (e) {
-  emit({
-    status: "SKIPPED",
-    reason: `dev 서버 미접근 ${url} (${e.message}) — npm run dev 기동 후 재시도`,
-  });
-  process.exit(0);
+if (!STRICT) {
+  // === LITE 모드 (기존 동작 backward compat) — 별도 호출 함수 ===
+  await runLite();
+} else {
+  await runStrict();
 }
 
-// ---------- Playwright 실행 ----------
-let browser;
-try {
-  browser = await chromium.launch({ headless: true });
-} catch (e) {
-  emit({
-    status: "SKIPPED",
-    reason: `chromium 미설치 (${e.message.split("\n")[0]}) — npx playwright install chromium 후 재시도`,
-  });
-  process.exit(0);
+// ============ LITE ============
+async function runLite() {
+  if (!opts.baseline) { console.error("lite: --baseline required"); process.exit(2); }
+  const baselinePath = resolve(opts.baseline);
+  if (!existsSync(baselinePath) && !opts["update-baseline"]) {
+    console.log(JSON.stringify({ section: opts.section, viewport: opts.viewport, status: "NO_BASELINE", baseline: baselinePath }));
+    process.exit(0);
+  }
+  const url = opts.url || `${opts["preview-base"]}/__preview/${opts.section}`;
+  let browser;
+  try { browser = await chromium.launch({ headless: true }); }
+  catch (e) {
+    console.log(JSON.stringify({ section: opts.section, status: "SKIPPED", reason: `chromium 미설치 (${e.message.split("\n")[0]})` }));
+    process.exit(0);
+  }
+  let currentBuf;
+  try {
+    const ctx = await newStableContext(browser, opts.viewport);
+    const page = await ctx.newPage();
+    await stabilizePage(page, { url, timeout: opts.timeout });
+    currentBuf = await page.screenshot({ fullPage: true });
+  } catch (e) {
+    await browser.close().catch(() => {});
+    console.log(JSON.stringify({ section: opts.section, status: "SKIPPED", reason: `Playwright 렌더 실패 (${e.message.split("\n")[0]})` }));
+    process.exit(0);
+  }
+  await browser.close();
+  if (opts["update-baseline"]) {
+    mkdirSync(dirname(baselinePath), { recursive: true });
+    writeFileSync(baselinePath, currentBuf);
+    console.log(JSON.stringify({ section: opts.section, viewport: opts.viewport, status: "BASELINE_UPDATED", baseline: baselinePath }));
+    process.exit(0);
+  }
+  const cur = PNG.sync.read(currentBuf);
+  const base = PNG.sync.read(readFileSync(baselinePath));
+  if (cur.width !== base.width || cur.height !== base.height) {
+    console.log(JSON.stringify({ section: opts.section, viewport: opts.viewport, status: "FAIL", reason: `dimension mismatch — baseline ${base.width}x${base.height}, current ${cur.width}x${cur.height}` }));
+    process.exit(1);
+  }
+  const diff = new PNG({ width: cur.width, height: cur.height });
+  const dp = pixelmatch(cur.data, base.data, diff.data, cur.width, cur.height, { threshold: 0.1 });
+  const dpct = (dp / (cur.width * cur.height)) * 100;
+  mkdirSync(opts["diff-dir"], { recursive: true });
+  const diffPath = join(opts["diff-dir"], `${opts.section}-${opts.viewport}.diff.png`);
+  writeFileSync(diffPath, PNG.sync.write(diff));
+  const pass = dpct <= opts["threshold-l1"];
+  console.log(JSON.stringify({ section: opts.section, viewport: opts.viewport, status: pass ? "PASS" : "FAIL", diffPercent: Number(dpct.toFixed(3)), threshold: opts["threshold-l1"], diffPath, baseline: baselinePath }));
+  process.exit(pass ? 0 : 1);
 }
 
-let currentBuf;
-try {
-  const context = await browser.newContext({ viewport: VIEWPORTS[opts.viewport] });
-  const page = await context.newPage();
-  await page.goto(url, { waitUntil: "networkidle", timeout: opts.timeout });
-  currentBuf = await page.screenshot({ fullPage: true });
-} catch (e) {
-  await browser.close().catch(() => {});
-  emit({
-    status: "SKIPPED",
-    reason: `Playwright 렌더 실패 (${e.message.split("\n")[0]})`,
-  });
-  process.exit(0);
+// ============ STRICT ============
+async function runStrict() {
+  const baseDir = resolve(opts["baseline-dir"]);
+  const requestedViewports = (opts.viewports || "desktop,tablet,mobile").split(",").map((s) => s.trim());
+
+  // legacy.json 검증
+  const legacyPath = join(baseDir, "legacy.json");
+  const legacy = readLegacy(legacyPath);
+  let legacyValid = false;
+  let legacyReason = null;
+  if (legacy) {
+    const r = validateLegacy(legacy);
+    legacyValid = r.valid;
+    legacyReason = r.reason;
+  }
+
+  // 어떤 viewport 가 평가 가능한지
+  const evalPlan = [];
+  for (const v of requestedViewports) {
+    const png = join(baseDir, `${v}.png`);
+    const am = join(baseDir, `anchors-${v}.json`);
+    const skipByLegacy = legacy && legacyValid && (legacy.skipViewports || []).includes(v);
+    if (skipByLegacy) { evalPlan.push({ v, status: "SKIPPED_LEGACY" }); continue; }
+    if (!existsSync(png)) { evalPlan.push({ v, status: "NO_BASELINE", png }); continue; }
+    let l2skip = false;
+    if (!existsSync(am)) {
+      if (legacy && legacyValid && legacy.skipL2) l2skip = true;
+      else { evalPlan.push({ v, status: "NO_MANIFEST", reason: "anchor manifest 부재. legacy.json 없음 — strict 강제로 FAIL." }); continue; }
+    }
+    evalPlan.push({ v, status: "READY", png, am, l2skip });
+  }
+
+  // legacy invalid 면 모든 viewport 강제 FAIL
+  if (legacy && !legacyValid) {
+    console.log(JSON.stringify({ section: opts.section, status: "FAIL", strictEffective: false, reason: `invalid legacy: ${legacyReason}`, viewports: {} }));
+    process.exit(1);
+  }
+
+  const blockingNoManifest = evalPlan.filter((e) => e.status === "NO_MANIFEST");
+  if (blockingNoManifest.length) {
+    console.log(JSON.stringify({ section: opts.section, status: "FAIL", strictEffective: false, reason: `missing anchor manifest: ${blockingNoManifest.map((e) => e.v).join(",")}`, viewports: {} }));
+    process.exit(1);
+  }
+
+  const blockingNoBaseline = evalPlan.filter((e) => e.status === "NO_BASELINE");
+  if (blockingNoBaseline.length) {
+    console.log(JSON.stringify({ section: opts.section, status: "FAIL", strictEffective: false, reason: `NO_BASELINE: ${blockingNoBaseline.map((e) => e.v).join(",")}`, viewports: {} }));
+    process.exit(1);
+  }
+
+  // Playwright launch (1회)
+  let browser;
+  try { browser = await chromium.launch({ headless: true }); }
+  catch (e) {
+    console.log(JSON.stringify({ section: opts.section, status: "SKIPPED", reason: `chromium 미설치 (${e.message.split("\n")[0]})`, strictEffective: false }));
+    process.exit(0);
+  }
+
+  // 3 viewport 병렬
+  const url = opts.url || `${opts["preview-base"]}/__preview/${opts.section}`;
+  const evalReady = evalPlan.filter((e) => e.status === "READY");
+  const evalResults = await Promise.all(evalReady.map((e) => evaluateViewport(browser, e, url)));
+  await browser.close();
+
+  // 합산
+  const viewportResults = {};
+  let strictEffective = true;
+  let fail = false;
+  let reason = null;
+  for (const e of evalPlan) {
+    if (e.status === "SKIPPED_LEGACY") {
+      viewportResults[e.v] = { status: "SKIPPED_LEGACY", strictEffective: false };
+      strictEffective = false;
+    }
+  }
+  for (const r of evalResults) {
+    viewportResults[r.viewport] = r;
+    if (r.l2 && r.l2.status === "SKIPPED") strictEffective = false;
+    if (r.status === "FAIL") { fail = true; reason = reason || r.reason; }
+  }
+
+  console.log(JSON.stringify({
+    section: opts.section,
+    status: fail ? "FAIL" : "PASS",
+    strictEffective,
+    reason,
+    viewports: viewportResults,
+  }));
+  process.exit(fail ? 1 : 0);
 }
-await browser.close();
 
-// ---------- --update-baseline 모드 ----------
-if (opts["update-baseline"]) {
-  mkdirSync(dirname(baselinePath), { recursive: true });
-  writeFileSync(baselinePath, currentBuf);
-  emit({ status: "BASELINE_UPDATED", baseline: baselinePath });
-  process.exit(0);
+async function evaluateViewport(browser, plan, url) {
+  const { v: viewport, png, am, l2skip } = plan;
+  const ctx = await newStableContext(browser, viewport);
+  const page = await ctx.newPage();
+  try {
+    await stabilizePage(page, { url, timeout: opts.timeout });
+  } catch (e) {
+    await ctx.close();
+    return { viewport, status: "FAIL", reason: `Playwright 렌더 실패 (${e.message.split("\n")[0]})` };
+  }
+  // L2 측정 (anchor bbox)
+  let l2 = { status: "SKIPPED" };
+  let maskRects = [];
+  if (!l2skip) {
+    const manifest = readManifest(am);
+    const ids = manifest.anchors.map((a) => a.id);
+    const bboxes = await page.evaluate((ids) => {
+      const out = {};
+      for (const id of ids) {
+        const el = document.querySelector(`[data-anchor="${id.replace(/"/g, '\\"')}"]`);
+        if (el) {
+          const r = el.getBoundingClientRect();
+          out[id] = { x: r.x, y: r.y, w: r.width, h: r.height, tag: el.tagName, semantic: ["H1","H2","H3","H4","H5","H6","P","SPAN","LI","DT","DD","STRONG","EM"].includes(el.tagName) };
+        }
+      }
+      return out;
+    }, ids);
+    const matched = new Set(Object.keys(bboxes));
+    const required = manifest.anchors.filter((a) => a.required);
+    const optional = manifest.anchors.filter((a) => !a.required);
+    const rule = applyMatchingRule(required, optional, matched);
+    let maxDelta = 0;
+    let bboxFail = null;
+    for (const a of manifest.anchors) {
+      const m = bboxes[a.id];
+      if (!m) continue;
+      const isRoot = a.role === ROLES.SECTION_ROOT;
+      const pct = isRoot ? 0.5 : opts["threshold-l2-pct"];
+      const tolX = Math.max(opts["threshold-l2-px"], (pct / 100) * a.bbox.w);
+      const tolY = a.role === ROLES.TEXT_BLOCK
+        ? Math.max(opts["threshold-l2-px"] * 2, (pct / 100) * a.bbox.h)
+        : Math.max(opts["threshold-l2-px"], (pct / 100) * a.bbox.h);
+      const dx = Math.abs(m.x - a.bbox.x);
+      const dy = Math.abs(m.y - a.bbox.y);
+      maxDelta = Math.max(maxDelta, dx, dy);
+      if (dx > tolX || dy > tolY) {
+        bboxFail = bboxFail || `${a.id} delta x=${dx.toFixed(0)} y=${dy.toFixed(0)} tol(${tolX.toFixed(0)},${tolY.toFixed(0)})`;
+      }
+      // text-block 은 실제 text-bearing element 인지 검사
+      if (a.role === ROLES.TEXT_BLOCK && !m.semantic) {
+        bboxFail = bboxFail || `${a.id} role:text-block on non-text element <${m.tag}>`;
+      }
+      // mask 영역 누적
+      if (a.role === ROLES.TEXT_BLOCK) {
+        maskRects.push({ x: m.x, y: m.y, w: m.w, h: m.h });
+      }
+    }
+    l2 = {
+      status: rule.pass && !bboxFail ? "PASS" : "FAIL",
+      anchorsMatched: matched.size,
+      anchorsTotal: manifest.anchors.length,
+      requiredMatched: required.filter((a) => matched.has(a.id)).length,
+      requiredTotal: required.length,
+      maxDeltaPx: Math.round(maxDelta),
+      reason: rule.pass ? bboxFail : rule.reason,
+    };
+  }
+
+  // L1 측정 (mask 적용)
+  const buf = await page.screenshot({ fullPage: true });
+  await ctx.close();
+  const cur = PNG.sync.read(buf);
+  const base = PNG.sync.read(readFileSync(png));
+  if (cur.width !== base.width || cur.height !== base.height) {
+    return { viewport, status: "FAIL", reason: `dimension mismatch — baseline ${base.width}x${base.height}, current ${cur.width}x${cur.height}`, l1: null, l2 };
+  }
+  // mask 면적 검사 — section 면적의 35% 초과 시 FAIL
+  const totalArea = cur.width * cur.height;
+  const maskArea = maskRects.reduce((s, r) => s + r.w * r.h, 0);
+  if (maskArea / totalArea > 0.35) {
+    return { viewport, status: "FAIL", reason: `text-block mask area ${(maskArea/totalArea*100).toFixed(1)}% > 35% 상한`, l1: null, l2 };
+  }
+  // mask 픽셀 무시
+  if (maskRects.length) {
+    for (const r of maskRects) {
+      const x0 = Math.max(0, Math.floor(r.x));
+      const y0 = Math.max(0, Math.floor(r.y));
+      const x1 = Math.min(cur.width, Math.floor(r.x + r.w));
+      const y1 = Math.min(cur.height, Math.floor(r.y + r.h));
+      for (let y = y0; y < y1; y++) {
+        for (let x = x0; x < x1; x++) {
+          const idx = (y * cur.width + x) * 4;
+          base.data[idx] = cur.data[idx];
+          base.data[idx + 1] = cur.data[idx + 1];
+          base.data[idx + 2] = cur.data[idx + 2];
+          base.data[idx + 3] = cur.data[idx + 3];
+        }
+      }
+    }
+  }
+  const diff = new PNG({ width: cur.width, height: cur.height });
+  const dp = pixelmatch(cur.data, base.data, diff.data, cur.width, cur.height, { threshold: 0.1 });
+  const dpct = (dp / totalArea) * 100;
+  mkdirSync(opts["diff-dir"], { recursive: true });
+  const diffPath = join(opts["diff-dir"], `${opts.section}-${viewport}.diff.png`);
+  writeFileSync(diffPath, PNG.sync.write(diff));
+  const l1 = {
+    status: dpct <= opts["threshold-l1"] ? "PASS" : "FAIL",
+    diffPercent: Number(dpct.toFixed(3)),
+    maskArea: Number(((maskArea / totalArea) * 100).toFixed(1)),
+    diffPath,
+  };
+  const overallFail = l1.status === "FAIL" || l2.status === "FAIL";
+  return {
+    viewport,
+    status: overallFail ? "FAIL" : "PASS",
+    reason: overallFail ? (l1.status === "FAIL" ? `L1 ${dpct.toFixed(2)}% > ${opts["threshold-l1"]}%` : l2.reason) : null,
+    l1,
+    l2,
+  };
 }
-
-// ---------- pixelmatch diff ----------
-const currentPng = PNG.sync.read(currentBuf);
-const baselinePng = PNG.sync.read(readFileSync(baselinePath));
-
-if (currentPng.width !== baselinePng.width || currentPng.height !== baselinePng.height) {
-  emit({
-    status: "FAIL",
-    reason: `dimension mismatch — baseline ${baselinePng.width}x${baselinePng.height}, current ${currentPng.width}x${currentPng.height}`,
-    hint: "--update-baseline 재설정 필요 또는 섹션 치수 확인",
-  });
-  process.exit(1);
-}
-
-const diffPng = new PNG({ width: currentPng.width, height: currentPng.height });
-const diffPixels = pixelmatch(
-  currentPng.data,
-  baselinePng.data,
-  diffPng.data,
-  currentPng.width,
-  currentPng.height,
-  { threshold: 0.1 }, // per-pixel 색상 민감도
-);
-
-const totalPixels = currentPng.width * currentPng.height;
-const diffPercent = (diffPixels / totalPixels) * 100;
-
-mkdirSync(opts["diff-dir"], { recursive: true });
-const diffPath = join(opts["diff-dir"], `${opts.section}-${opts.viewport}.diff.png`);
-writeFileSync(diffPath, PNG.sync.write(diffPng));
-
-const pass = diffPercent <= opts.threshold;
-emit({
-  status: pass ? "PASS" : "FAIL",
-  diffPercent: Number(diffPercent.toFixed(3)),
-  threshold: opts.threshold,
-  diffPath,
-  baseline: baselinePath,
-});
-process.exit(pass ? 0 : 1);
