@@ -8,7 +8,7 @@
 # G7 Lighthouse a11y/SEO  — @lhci/cli (preview 라우트, 선택)
 # G8 i18n 가능성          — check-text-ratio.mjs 의 g8 필드
 #
-# G1 은 lite 원칙에 따라 환경 미비 / baseline 없음 시 SKIP (차단 아님).
+# G1 은 기본 strict 모드: baseline 디렉토리 부재 시 FAIL. LITE=1 환경변수로 옵트아웃 가능.
 # G2(치수 computed style), G3(asset naturalWidth) 는 제거됨.
 #
 # Usage:
@@ -23,11 +23,11 @@
 #   --files "p1 p2 ..."  G4/G5/G6/G8 을 디렉토리 전체가 아닌 **지정 파일에만** 실행.
 #                        공유 디렉토리에서 타 섹션 이슈가 현재 섹션을 차단하는 것 방지.
 #                        미지정 시 <섹션 디렉토리> 전체 스캔 (기본값 · 이전 동작).
-#   --baseline <path>    G1 baseline PNG 경로 (기본: baselines/<섹션명>/<viewport>.png)
-#   --viewport <v>       desktop | tablet | mobile (기본: desktop)
+#   --baseline <path>    G1 baseline PNG 경로 (LITE=1 에서만 적용; 기본: baselines/<섹션명>/<viewport>.png)
+#   --viewport <v>       desktop | tablet | mobile (LITE=1 에서만 적용; strict 모드는 viewport 자동 감지)
 #
 # 종료 코드:
-#   0: G4/G5/G6/G8 전부 PASS (G1/G7 은 환경 미비 시 SKIP 허용)
+#   0: G4/G5/G6/G8/G10/G11 전부 PASS (G1 strict: baseline 부재 시 FAIL; LITE=1 시 옵트아웃. G7 환경별)
 #   1: 하나라도 FAIL
 #   2: 사용법 오류
 #
@@ -314,7 +314,6 @@ else
 fi
 if [ -z "$G11_FILES" ]; then
   echo "  ⚠ G11 SKIP (no source files)"
-  G11_STATUS="SKIP"
 else
   if node "${SCRIPT_DIR}/check-layout-escapes.mjs" --section "$section" --files "$G11_FILES" >/tmp/g11.out 2>/tmp/g11.err; then
     G11_STATUS="PASS"
