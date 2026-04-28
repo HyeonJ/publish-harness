@@ -31,6 +31,9 @@ export function writeLegacy(path, legacy) {
 
 /**
  * @returns {{valid: boolean, reason: string|null}}
+ *
+ * Note: 첫 번째 위반에서 즉시 반환 (anchor-manifest.mjs 의 validateManifest 가 errors[] 로
+ * 전체 오류를 누적하는 것과 대조적) — 거버넌스 필드 하나라도 잘못되면 전체 manifest 가 무효.
  */
 export function validateLegacy(legacy) {
   if (!legacy) return { valid: false, reason: "no legacy manifest" };
@@ -74,6 +77,9 @@ export function issueLegacy({ creator, reason, skipL2 = true, skipViewports = []
 }
 
 export function renewLegacy(legacy, { sourceCommit }) {
+  if (!ALLOWED_CREATORS.includes(legacy.createdBy)) {
+    throw new Error(`cannot renew: invalid createdBy "${legacy.createdBy}"`);
+  }
   const today = new Date();
   const expires = new Date(today.getTime() + 90 * 24 * 60 * 60 * 1000);
   return {
