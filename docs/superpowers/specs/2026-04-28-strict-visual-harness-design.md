@@ -1,12 +1,19 @@
 # Strict Visual Harness — 설계
 
 **작성일**: 2026-04-28
-**상태**: Draft v3 (codex 2차 리뷰 반영)
+**상태**: Draft v4 (목적 검증 + multi-viewport 보강)
 **브랜치**: `feat/strict-visual-harness`
 **트리거**: 사용자 요청 — "diff <5%" 차단 게이트 복원. 단, 옛날 heavy 가 폐기된 이유(absolute 회귀 + 운영 비용)를 동시에 해결.
 
 ## 변경 이력
 
+- **v3 → v4 (2026-04-28, 목적 검증 인터뷰 반영)**:
+  - 사각지대 #1 보강: 사용자 환경에 mobile/tablet figma 디자인 거의 없음 발견 → (δ) 무력화 위험
+  - 해결: Phase 2 분해 단계에서 **figma `use_figma` MCP 도구로 mobile/tablet frame 자동 생성**
+  - 디자이너 부재 회사 시나리오: Claude 가 디자이너 역할 (use_figma 로 figma 안에서 처리, 사용자 승인 1회)
+  - figma 가 진실의 원천 그대로 — node ID 생성됨 → 우리 figma 모드 변경 0
+  - 추가 비용 0 (Anthropic 토큰만)
+  - fallback 옵션 (Nano Banana Pro / Gemini chat 수동 / Gemini CLI OAuth) 은 §16 알려진 한계로 메모
 - **v2 → v3 (2026-04-28, codex 2차 리뷰 반영)**:
   - HIGH: G11 whitelist 의미 모순 해결 — `ui/brand/foundation` 은 "직접 스캔 안 함" 이지만 section root 의 dependency closure 에 포함되면 escape budget 에 카운트
   - HIGH: `legacy.json` 거버넌스 — `createdBy`/`sourceCommit`/`expiresAt` 필수 필드, `migrate-baselines` 만 생성 가능, CI 에서 구현 PR 의 신규 legacy 추가 FAIL
@@ -52,6 +59,7 @@
 | Q7 | (M2)+`data-anchor` manifest | 워커가 박음 + 자동검증 게이트, manifest 에 required/optional/role/nodeId |
 | **신** | strict default + legacy 옵트인 | 신규 프로젝트는 anchor 부재 = FAIL. `baselines/<section>/legacy.json` 만 SKIP |
 | **신** | layout escape budget | absolute 외 fixed/sticky/transform/negative margin/매직 px 카운트 |
+| **신 (v4)** | (ε) figma `use_figma` 자동 multi-viewport | desktop only figma 에서 Phase 2 분해 시 자동으로 mobile/tablet frame 생성 (Claude = 디자이너 역할) |
 
 ## 4. 게이트 구성
 
@@ -607,6 +615,78 @@ bash scripts/test-strict-gates.sh
 
 multi-viewport fixture 필수 — desktop only 로는 `δ` 강제 검증 안 됨.
 
+## 12.5. (δ) 보강 — figma `use_figma` 로 multi-viewport 자동 생성 (v4 신규)
+
+### 배경
+
+검증 인터뷰에서 발견: 사용자 figma 파일에 mobile/tablet 디자인이 보통 없음 (회사에 디자이너 부재). 이 상태로 (δ) 멀티뷰포트 강제는 사실상 비활성화.
+
+### 해결
+
+Phase 2 분해 단계에서 **자동으로 mobile/tablet frame 을 figma 안에 생성**. figma `use_figma` MCP 도구가 Plugin API JS 실행 가능 → 새 frame 생성 + Auto Layout 적용 가능.
+
+### 흐름 (4분기 처리)
+
+기존 `workflow.md` 의 "반응형 프레임 감지" 절을 확장. **이미 있는 frame 은 use_figma 호출 안 함**.
+
+```
+Phase 2 (분해) — 오케스트레이터가 직접 수행:
+  1. 페이지 Node ID 확인 (`docs/project-context.md`)
+  2. get_metadata 또는 REST 노드 조회 (페이지 단위)
+  3. **자동 감지** (기존 workflow.md 의 4종 단서 그대로):
+     - 프레임 이름 키워드: "Mobile"/"Tablet"/"-Mobile"/"(Mobile)"/"Desktop"/"-Desktop" 등
+     - 프레임 너비: 1920/1440/1280=Desktop · 768/1024=Tablet · 375/390/360=Mobile
+     - Figma 페이지 분리: "Desktop Pages"/"Mobile Pages"
+     - 섹션 변종: 같은 섹션의 viewport별 복제
+  4. **분기 처리** (이게 v4 의 핵심):
+
+     | desktop | tablet | mobile | 동작 |
+     |---|---|---|---|
+     | ✅ | ✅ | ✅ | use_figma **호출 X**. 기존 흐름 그대로 (Tier 2 multi-viewport) |
+     | ✅ | ✅ | ❌ | mobile 만 use_figma 로 생성. tablet 은 figma 디자이너 의도 그대로 |
+     | ✅ | ❌ | ✅ | tablet 만 use_figma 로 생성 |
+     | ✅ | ❌ | ❌ | tablet + mobile 둘 다 use_figma 로 생성 |
+     | ❌ | * | * | desktop 부재는 errror — bootstrap 단계에서 차단되어야 함 |
+
+  5. use_figma 호출 단계 (4의 b/c/d 케이스에만):
+     a. desktop frame 의 자식 element 트리 분석 (get_design_context 결과 활용)
+     b. Claude 가 부재 viewport 의 레이아웃 추론:
+        - mobile (375px): 자식들 stack (column), font-size -10~-15%, padding 축소
+        - tablet (768px): 2-col 또는 wider hero, font-size 거의 그대로
+     c. use_figma 호출 — Plugin API JS 코드:
+        - 새 frame 생성 (375 / 768 width) at desktop 옆 적당한 위치
+        - Auto Layout 적용 (direction=column / row)
+        - desktop 자식 노드들을 새 frame 에 복사 + 재배치
+        - 텍스트 / 이미지 / 컴포넌트 node 유지
+     d. 결과 frame 의 node ID 를 `docs/project-context.md` 의 페이지 테이블 해당 컬럼에 기록
+  6. **사용자 승인 1회** — 생성한 viewport 만 보여줌:
+     - "Desktop 은 디자이너 figma 의도 그대로. {Mobile/Tablet} 은 자동 생성됨. figma 에서 확인. OK 면 Phase 3 진행"
+     - 모든 viewport 가 이미 있었으면 (4-1 케이스) 승인 단계 스킵 — 별도 메시지 없이 진행
+  7. PROGRESS.md 에 섹션 목록 추가 (multi-viewport 활성화 + 자동 생성 viewport 표기)
+```
+
+### 핵심 원칙
+
+- **figma 디자이너 의도는 절대 덮어쓰지 않음**. 이미 있는 frame 은 그대로 사용
+- 자동 생성은 **부재한 viewport 에만** 적용
+- `docs/project-context.md` 의 페이지 테이블에 "**source**" 컬럼 추가 권장 — `figma-original` vs `auto-generated` 구분 (자동 생성된 viewport 는 사용자가 추후 figma 에서 수정 가능)
+
+### 디자인 책임 명시
+
+- **figma 가 진실의 원천 그대로** — 단 mobile/tablet 의 디자이너는 Claude
+- 사용자가 figma 안에서 결과를 다듬을 수 있음 (Auto Layout 그대로)
+- 다음번 동일 페이지 작업 시: 이미 frame 있으면 재사용 (자동 감지 → 기존 변종 흐름)
+
+### 구현 가이드
+
+오케스트레이터의 Phase 2 단계에서 use_figma 호출 — 워커 위임 X. 페이지 단위 한 번. plugin API 코드는 `docs/responsive-figma-generator.md` 참조 (M11 신규).
+
+### 한계 / 책임
+
+- Claude 가 만든 mobile/tablet 디자인은 **추론**. 실제 사용자/디자이너 의도와 다를 수 있음
+- 사용자 승인 단계가 필수 (자동 진행 X)
+- 결과 품질이 미흡하면 사용자가 figma 에서 직접 수정 또는 §16 fallback 옵션 사용
+
 ## 13. baseline 갱신 프로토콜
 
 옛 heavy 폐기 원인 중 하나: "Figma 가 변경됐는지 코드가 회귀했는지 구분 안 됨". 이 spec 에서 명시.
@@ -683,6 +763,7 @@ legacy 의 `expiresAt` 갱신은 `migrate-baselines.mjs --renew --section <id>` 
 | M8 | fixture 18종 + `test-strict-gates.sh` (multi-viewport 포함) | 모든 fixture 의도대로 PASS/FAIL (positioning/transform/arbitrary-px/dynamic-classname/css-module/anchor-missing/bbox-delta/pixel-diff/mask-overflow/text-block-on-div/legacy-valid/legacy-invalid-creator/legacy-expired/no-manifest/escape-text-child/escape-decorative/import-clean/import-dirty) |
 | M9 | `docs/workflow.md` / `CLAUDE.md` 게이트 표 갱신 + §13 baseline 갱신 프로토콜 | G11 + G1 strict 명시, 디자인/구현 PR 분리 |
 | M10 | dogfooding 1개 페이지 (publish-harness 본 리포 또는 사용자 운영 프로젝트) | 실제 페이지 strict 통과, false-positive < 5%, 평균 runtime / retry율 / SKIP율 기록 |
+| M11 (v4 신규) | `docs/responsive-figma-generator.md` — 오케스트레이터용 use_figma plugin API 코드 가이드 + workflow.md Phase 2 분해 단계에 자동 multi-viewport 생성 흐름 추가 | 가상 desktop figma 에서 mobile/tablet frame 자동 생성 → figma 에 node 추가 확인 → 사용자 승인 |
 
 ### 의존성 그래프
 
@@ -701,15 +782,29 @@ M5 ─┐
           └─ M10 (dogfooding)
 ```
 
-## 16. v3 적용 후 알려진 한계 (의도된 제외)
+## 16. 알려진 한계 (의도된 제외)
 
-codex 2차 리뷰 중 plan 단계로 미룬 항목:
+codex 2차 리뷰 + 검증 인터뷰 중 plan 단계로 미룬 항목:
 
 - **#3 spec 모드 L2 공백** — reference HTML 기반 DOM anchor manifest 자동 생성. spec 모드는 보조 모드라 plan 단계에서 다룸. 현재는 spec 모드 = "partial strict" 로 명시 (L2 SKIP, L1 + escape budget + 멀티뷰포트만)
 - **#5 escape budget 가중치** — 현재 단순 카운트 (transform ≤2 등). implementation 시 false-positive/negative 데이터 보고 가중치 도입 검토. v3 의 단순 룰로 시작하고 dogfooding 결과로 조정.
 - **G1 CLI 인터페이스 변경 마이그레이션** (LOW) — 기존 호출자 영향 plan 단계에서 정리
 - **measure-quality.sh fail-fast 순서 backward compat** (LOW) — JSON 출력 키 호환성
 - **multi-viewport fixture 정확한 baseline PNG 생성** (LOW) — fixture 구축은 implementation 작업
+
+### v4 추가 — multi-viewport fallback 옵션 (use_figma 부족 시)
+
+§12.5 의 figma `use_figma` 자동 생성이 잘 안 되는 경우 (figma plugin API 한계, 복잡한 디자인) 의 fallback. **현재 spec 본진엔 미포함** — dogfooding 으로 use_figma 품질 평가 후 결정:
+
+| 옵션 | 자동화 | 비용 | 노트 |
+|---|---|---|---|
+| (β) Gemini chat 수동 | ❌ 수동 | $0 (구독 활용, $20/월) | 사용자가 figma desktop 이미지 업로드 → "make this mobile" prompt → 결과 다운로드 → baseline 으로 사용. 단 figma 안 안 들어감 |
+| (γ-OAuth) Gemini CLI OAuth | ✅ 자동 | $0 (무료 tier, quota 제약) | 개인 Google 계정 OAuth → Nano Banana Flash. Pro 는 2026.3 부터 유료. quota 도달 시 차단 |
+| (γ) Gemini API (Nano Banana Pro MCP) | ✅ 자동 | 사용량 ($0.04~$0.15/장, 월 $5~$30 정도) | API key 별도. 안정성 ↑. 품질 ↑ |
+| (3) Google Stitch SDK | ✅ 자동 | API 비용 | TypeScript SDK, HTML+screenshot 출력 |
+| (4) Codia DesignGen API | ✅ 자동 | API 비용 | Figma JSON 반환 가능 |
+
+도입 트리거: dogfooding M10 단계에서 use_figma 자동 생성의 품질이 낮거나 실패율 > 30% 일 때 (β) 부터 도입 검토. 그 외엔 (α) figma `use_figma` 만으로 충분.
 
 ## 17. 다음 단계
 
