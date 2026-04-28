@@ -1,13 +1,21 @@
 # Strict Visual Harness — 설계
 
 **작성일**: 2026-04-28
-**상태**: Draft v2 (codex 1차 리뷰 반영)
+**상태**: Draft v3 (codex 2차 리뷰 반영)
 **브랜치**: `feat/strict-visual-harness`
 **트리거**: 사용자 요청 — "diff <5%" 차단 게이트 복원. 단, 옛날 heavy 가 폐기된 이유(absolute 회귀 + 운영 비용)를 동시에 해결.
 
 ## 변경 이력
 
-- **v1 → v2 (2026-04-28, codex 리뷰 반영)**:
+- **v2 → v3 (2026-04-28, codex 2차 리뷰 반영)**:
+  - HIGH: G11 whitelist 의미 모순 해결 — `ui/brand/foundation` 은 "직접 스캔 안 함" 이지만 section root 의 dependency closure 에 포함되면 escape budget 에 카운트
+  - HIGH: `legacy.json` 거버넌스 — `createdBy`/`sourceCommit`/`expiresAt` 필수 필드, `migrate-baselines` 만 생성 가능, CI 에서 구현 PR 의 신규 legacy 추가 FAIL
+  - HIGH: text-block mask 총면적 상한 (section area 의 35%), 실제 text-bearing element 에만 허용
+  - HIGH: G11 에 Playwright runtime computed-style sweep 추가 — 동적 class / CSS module / runtime style object 우회 차단
+  - 보강: section-root 의 L2 tolerance 일반보다 엄격 (1% → 0.5%)
+  - 보강: unknown role 비율 30% 초과 시 manifest review required 분기
+  - 보강: `data-allow-escape` 가 escape budget 카운트에서 제외 명시 (별도 allowedEscapes 보고)
+- **v1 → v2 (2026-04-28, codex 1차 리뷰 반영)**:
   - HIGH: G11 을 "absolute 차단" → **layout escape budget** 으로 확장 (transform/negative margin/매직 px/fixed/sticky 포함)
   - HIGH: 호환 룰 reverse — 신규 프로젝트 anchor json 부재 = FAIL, `legacy.json` manifest 있을 때만 SKIP
   - HIGH: L1 5% 의 text-heavy 시나리오 정책 추가, Playwright 안정화 조건 명시
@@ -118,6 +126,13 @@ launch chromium (1회)
 
 이렇게 하면 큰 텍스트 섹션도 L1 5% 안에 들어옴 — 진짜 layout 회귀 (큰 background/이미지 변경) 만 잡힘.
 
+**mask 무력화 방지 (codex v2 리뷰 반영)**:
+
+워커가 큰 영역을 `text-block` 으로 잡으면 hero 대부분이 mask 되어 이미지/배경 drift 도 숨길 위험. 두 가지 안전장치:
+
+1. **mask 총면적 상한**: 한 viewport 의 mask 처리된 픽셀 합계가 **section bbox 의 35% 초과** 시 FAIL (`reason: "text-block mask 면적 초과"`). 35% 는 hero 같이 텍스트 비중 높은 섹션도 통과 가능한 합리적 상한.
+2. **text-bearing element 만 허용**: extract-figma-anchors 가 Figma `type=TEXT` 노드만 `role: "text-block"` 후보로 식별. 일반 컨테이너 (`type=FRAME/GROUP`) 는 거부. 코드 측 `data-anchor` 도 게이트가 `getComputedStyle().display === "inline"` 또는 element 가 `<h*>/<p>/<span>/<li>/<dt>/<dd>` 등 텍스트 시맨틱 element 인지 검사 — 일반 `<div>` 는 거부.
+
 ### L2 — mixed tolerance
 
 ```
@@ -132,6 +147,14 @@ text_block 의 height: max(threshold-l2-px × 2, threshold-l2-pct% × element.he
 ```
 
 = 한 줄 누락/추가 정도의 변화는 잡지만, 줄 간격 미세 변화는 통과.
+
+**section-root 별도 tolerance (codex v2 리뷰)**:
+
+`role: "section-root"` anchor 는 일반 1% 보다 엄격하게 — `0.5% × element 변` 또는 `4px` 중 큰 값. section root 가 흔들리면 모든 자식 좌표가 함께 흔들리므로 가장 안정적이어야 함.
+
+```
+section_root 의 delta_max = max(threshold-l2-px, 0.5% × element 변)
+```
 
 ### 출력 (단일 JSON 줄)
 
@@ -182,33 +205,84 @@ text_block 의 height: max(threshold-l2-px × 2, threshold-l2-pct% × element.he
 | Playwright/dev서버 미비 | `SKIPPED` (env 문제, 사용자 개입 필요) |
 | `LITE=1` env | 모든 strict 기능 옵트아웃, `strictEffective: false`, `reason: "LITE env"` |
 
-`legacy.json` 형식:
+`legacy.json` 형식 (v3 — 거버넌스 필드 강제):
 ```json
 {
-  "version": 1,
+  "version": 2,
   "reason": "기존 프로젝트, strict 점진 도입 중",
   "skipL2": true,
   "skipViewports": ["tablet", "mobile"],
-  "createdAt": "2026-04-28"
+  "createdAt": "2026-04-28",
+  "createdBy": "migrate-baselines",
+  "sourceCommit": "ccbbdf8",
+  "expiresAt": "2026-07-28"
 }
 ```
+
+**거버넌스 룰 (codex v2 리뷰)**:
+
+1. **`createdBy` 화이트리스트**: `migrate-baselines` 또는 `bootstrap` 만 허용. 그 외 (워커/사용자 수동) 는 게이트가 invalid 로 취급 → FAIL. 게이트가 file 내용에 더해 git blame 검증도 가능 (`git log --diff-filter=A -- baselines/<section>/legacy.json` 의 작성자 ≠ 워커 commit 패턴이면 의심)
+2. **`sourceCommit` 필수**: legacy 발급 시점의 commit hash. legacy 가 그 commit 이후 다른 변경에 묻어가지 않도록 추적 가능
+3. **`expiresAt` 강제**: 발급 후 90일 자동 만료. 만료 후 게이트 FAIL (`reason: "legacy expired YYYY-MM-DD"`). expiresAt 갱신은 `migrate-baselines.mjs --renew` 만 가능
+4. **CI 차단**: `scripts/check-legacy-additions.mjs` 가 PR diff 검사 — 새 legacy.json 추가가 있고 그 PR 이 코드 변경 (구현 PR) 도 함께 포함하면 FAIL. `--migration-only` 플래그가 있는 commit (= migrate-baselines 단독 PR) 만 허용
+5. **사용자 개입 분기에서 직접 생성 금지**: spec v2 의 "사용자 개입 분기 / legacy.json 추가" 옵션 삭제. 워커 retry 실패 시 사용자가 할 수 있는 건 "migrate-baselines 호출" 또는 "Opus 승격 / 수동 / 스킵" 뿐. legacy 직접 작성 옵션 없음
+
+이렇게 하면 "실패한 strict 를 legacy 로 덮는" 운영 패턴 차단.
 
 ## 6. G11 — `check-layout-escapes.mjs` (escape budget)
 
 absolute 만 막는 게 아니라 **layout escape 행위 전체를 카운트**. AI 가 absolute 외 다른 escape 로 도망가는 우회 차단.
 
-**카운트 단위**: section root subtree 1개 = `data-anchor="<id>/root"` 의 자손 트리 (whitelist 디렉터리 import 한 컴포넌트의 dependency closure 포함). 한 파일에 여러 section 이 있으면 각 root subtree 별로 카운트.
+**카운트 단위**: section root subtree 1개 = `data-anchor="<id>/root"` 의 자손 트리 + dependency closure. 한 파일에 여러 section 이 있으면 각 root subtree 별로 카운트.
+
+### 검사 두 축 (정적 + runtime)
+
+**정적 축** — 코드 파일 정규식/AST 검사. JSX className / inline style / Tailwind 패턴 잡음. 빠르고 결정적. 단, 동적 합성(`clsx("ab" + "solute")`) / CSS module / runtime style object / CSS custom property 같은 우회는 못 잡음.
+
+**runtime 축 (codex v2 리뷰 신규)** — Playwright 가 어차피 G1 strict 측정 차원에서 dev 서버에 접속하는 시점에, section root subtree 의 모든 element 의 `getComputedStyle()` sweep. 진짜 적용된 스타일을 검사하므로 정적 우회 모두 차단. G1 과 같은 Playwright 세션 안에서 호출 — 추가 비용 작음.
+
+```javascript
+// runtime sweep 로직 개요
+const violations = await page.evaluate((sectionRootSelector) => {
+  const root = document.querySelector(sectionRootSelector);
+  const all = root.querySelectorAll("*");
+  const result = { positioning: [], transform: [], negativeMargin: [], offset: [] };
+  for (const el of all) {
+    const cs = getComputedStyle(el);
+    if (["absolute", "fixed", "sticky"].includes(cs.position)) {
+      result.positioning.push({ tag: el.tagName, pos: cs.position });
+    }
+    if (cs.transform && cs.transform !== "none") {
+      result.transform.push({ tag: el.tagName, value: cs.transform });
+    }
+    for (const side of ["marginTop", "marginRight", "marginBottom", "marginLeft"]) {
+      if (parseFloat(cs[side]) < 0) result.negativeMargin.push({ tag: el.tagName, side, value: cs[side] });
+    }
+    if (cs.position !== "static") {
+      for (const side of ["top", "right", "bottom", "left"]) {
+        const v = parseFloat(cs[side]);
+        if (!Number.isNaN(v) && v !== 0) result.offset.push({ tag: el.tagName, side, value: cs[side] });
+      }
+    }
+  }
+  return result;
+}, sectionRootSelector);
+```
+
+정적 + runtime 결과를 합산해 budget 검사 (중복 제거 후). 각 카테고리 임계 동일.
 
 ### 검사 대상 (모두 카운트)
 
-| 카테고리 | 패턴 | 차단 임계 |
-|---|---|---|
-| **A. positioning escape** | `absolute`, `fixed`, `sticky`, inline `position:*` | section 당 0 (root 제외) |
-| **B. transform escape** | `transform: translate(*)`, Tailwind `translate-x-*`/`translate-y-*` (px 값) | section 당 ≤2 |
-| **C. negative margin** | `margin: -*`, Tailwind `-m*`, `-mt-*`, `-ml-*` 등 | section 당 ≤2 |
-| **D. arbitrary px** | Tailwind `[<n>px]`, `w-[37px]`, `h-[42px]`, `gap-[7px]`, inline `style={{ width: '37px' }}` 등 (토큰 외 매직 px) | section 당 ≤3 |
-| **E. breakpoint divergence** | `md:left-[37px]`, `lg:translate-x-[18px]` 등 viewport별 매직 px | section 당 ≤2 (A~D 합산이 아닌 추가 카운트) |
-| **F. positioning helpers** | Tailwind `inset-*` / `top-*` / `left-*` (px 값, root 의 `relative` 제외) | A 와 함께 카운트 |
+| 카테고리 | 패턴 (정적) | runtime 등가 | 차단 임계 |
+|---|---|---|---|
+| **A. positioning escape** | `absolute`/`fixed`/`sticky`, inline `position:*` | computed `position` ∈ {absolute,fixed,sticky} | section 당 0 (root 제외) |
+| **B. transform escape** | `transform: translate(*)`, Tailwind `translate-x-*`/`-y-*` (px 값) | computed `transform` !== "none" | section 당 ≤2 |
+| **C. negative margin** | `margin: -*`, Tailwind `-m*` 등 | computed margin* < 0 | section 당 ≤2 |
+| **D. arbitrary px** | Tailwind `[<n>px]`, inline `style={{ width: '37px' }}` (토큰 외) | (정적만 — runtime 에선 토큰 vs 매직 구분 어려움) | section 당 ≤3 |
+| **E. breakpoint divergence** | `md:left-[37px]`, `lg:translate-x-[18px]` | (정적만 — 한 viewport 측정으로는 분기 못 봄. 3 viewport 측정 시 좌표 차이로 간접 검출) | section 당 ≤2 |
+| **F. positioning helpers** | Tailwind `inset-*` / `top-*` / `left-*` (px 값) | computed `top/right/bottom/left` !== 0 (position !== static 일 때) | A 와 함께 카운트 |
+
+**중요**: `data-allow-escape` 의 subtree 는 정적/runtime 양 축 모두 카운트에서 **제외**. 별도 `allowedEscapes` 배열로만 보고 (남용 가시화).
 
 ### `data-allow-escape` 예외 메커니즘
 
@@ -241,15 +315,25 @@ absolute 외 다른 escape 도 정당한 케이스 있음 (decorative shadow, st
 
 ### 검사 범위 (template 별)
 
-| Template | 차단 | 허용 (whitelist) |
-|---|---|---|
-| `vite-react-ts` | `src/components/sections/**/*.{tsx,jsx}` | `src/components/{ui,brand,foundation}/**` |
-| `html-static` | `public/**/*.html`, `public/css/**/*.css` (단 `tokens.css`/`fonts.css`/`main.css` 는 G10) | `public/_components/**` (있으면) |
-| `nextjs-app-router` | `src/app/**/*.{tsx,jsx}`, `src/components/sections/**` | `src/components/{ui,brand,foundation}/**` |
+**원칙 (codex v2 리뷰 명확화)**:
+- "직접 스캔" = 게이트가 단독으로 검사하는 파일 (= 그 안 escape 발견 시 즉시 violation)
+- "dependency closure 포함" = section 에서 import 되어 section root subtree 의 렌더 트리에 포함되면 budget 에 카운트되는 컴포넌트. 단독으로는 검사하지 않음 (= 어디서도 import 안 된 ui/brand 컴포넌트는 escape 가 있어도 violation 아님)
 
-**dependency closure 검사**: section 파일이 import 한 컴포넌트 (whitelist 디렉터리 밖) 도 재귀 검사. 우회로 차단 — "section 에선 깨끗한데 import 한 wrapper 가 absolute 사용" 막음.
-- import 그래프는 `@swc/parse` 또는 단순 정규식으로 추출 (성능 우선)
-- 외부 패키지 (`node_modules`) 는 검사 안 함 — `react`, `next/image` 등 정상 사용 가정
+| Template | 직접 스캔 (section files) | dependency closure 검사 (section 에서 import 시 포함) | 검사 안 함 |
+|---|---|---|---|
+| `vite-react-ts` | `src/components/sections/**/*.{tsx,jsx}` | `src/components/{ui,brand,foundation}/**`, 그 외 first-party 컴포넌트 | `node_modules/**`, react, next/image 등 외부 패키지 |
+| `html-static` | `public/**/*.html`, `public/css/**/*.css` (단 G10 보호 대상 제외) | `public/_components/**` (있으면), 그 외 first-party 부분 템플릿 | 외부 CDN |
+| `nextjs-app-router` | `src/app/**/*.{tsx,jsx}`, `src/components/sections/**` | `src/components/{ui,brand,foundation}/**`, 그 외 first-party | `node_modules/**` |
+
+**dependency closure 추출**:
+- React/Next: `import` 문 정규식 또는 `@swc/parse` AST 로 first-party import path 추적, 재귀 (depth 제한 없음 단 cycle detection)
+- HTML: `<link>`, `<script src>`, `<include>` 등 (template engine 별)
+- runtime 축은 자동으로 closure 포함 — 실제 렌더된 DOM 트리 기준
+
+**구체 시나리오** (codex 의 우회 우려 해결):
+- `ui/Button.tsx` 안에 `position:absolute` 있고 단독 — **violation 아님** (어디서도 import 안 됨)
+- `ui/Button.tsx` 안에 `position:absolute` 있고 `sections/Hero.tsx` 가 import — **Hero 의 budget 에 카운트** (positioning escape +1 → 임계 0 초과 → FAIL)
+- `ui/IconArrow.tsx` 가 `relative+absolute` 패턴으로 작은 chevron 위치 보정 — sections 에서 import 시 budget 카운트. 정당한 경우 `data-allow-escape="decorative-overlap"` 으로 mark
 
 ### 출력
 
@@ -371,6 +455,14 @@ Figma REST `/v1/files/<key>/nodes?ids=<sectionId>` 응답에서:
 
 추출된 manifest 는 사람이 읽고 수정 가능 — 자동 추론이 잘못된 role 은 plan 단계에서 워커가 PR 의 코드 리뷰처럼 수정.
 
+**unknown role 비율 룰 (codex v2 리뷰)**:
+
+`role: "unknown"` 인 anchor 가 manifest 의 **30% 초과** 시 → `extract-figma-anchors.mjs` 가 stdout 에 `MANIFEST_REVIEW_REQUIRED` 출력 + exit code 0 (= 자동 진행 차단 안 함, 신호만). 워커가 plan 단계에서 manifest review:
+- unknown anchor 의 Figma 노드 이름/타입 보고 적절한 role 부여 (또는 `required: false` 유지)
+- unknown 비율 ≤ 30% 가 될 때까지 manual 수정
+
+이렇게 하면 자동 추론 휴리스틱이 약한 디자인 (Figma 노드 이름 모호) 도 strict 진입 가능 — 단 워커의 manual 검토 비용 1회 발생.
+
 ## 8. 워커 파이프라인 변경
 
 ### 단계 1 — 리서치
@@ -429,7 +521,7 @@ bash scripts/measure-quality.sh hero src/components/sections/Hero.tsx
 | G1 NO_BASELINE | `prepare-baseline.mjs` 자동 호출 후 한 번 더 |
 | G1 anchor manifest missing (신규 프로젝트) | `prepare-baseline.mjs` 자동 호출. `legacy.json` 옵션은 사용자 개입 분기 |
 
-자체 retry 1회 후도 FAIL → 사용자 개입 분기 (Opus 승격 / 수동 / 스킵 / 재분할 / **baseline 갱신** / **legacy.json 추가**).
+자체 retry 1회 후도 FAIL → 사용자 개입 분기 (Opus 승격 / 수동 / 스킵 / 재분할 / **baseline 갱신** / **migrate-baselines 호출**). `legacy.json` 직접 작성은 허용 안 함 — `migrate-baselines.mjs` 만이 거버넌스 필드 (createdBy/sourceCommit/expiresAt) 를 정확히 채워 작성 가능.
 
 ## 9. 신규 / 변경 / Deprecated 매트릭스
 
@@ -437,9 +529,10 @@ bash scripts/measure-quality.sh hero src/components/sections/Hero.tsx
 |---|---|---|
 | 신규 | `scripts/prepare-baseline.mjs` | png + anchor manifest 통합 생성 |
 | 신규 | `scripts/extract-figma-anchors.mjs` | figma 노드 트리 → manifest (role 자동 추론) |
-| 신규 | `scripts/check-layout-escapes.mjs` | G11 escape budget 차단 (정적 + dependency closure) |
-| 신규 | `scripts/migrate-baselines.mjs` | 기존 프로젝트 1회 마이그레이션 (legacy.json 자동 생성 + 가능하면 manifest 추출) |
-| 변경 | `scripts/check-visual-regression.mjs` | strict 옵션 + L2 mixed tolerance + multi-viewport 병렬 + Playwright 안정화 + manifest v2 + L1 mask + strictEffective |
+| 신규 | `scripts/check-layout-escapes.mjs` | G11 escape budget 차단 (정적 + dependency closure + Playwright runtime sweep) |
+| 신규 | `scripts/migrate-baselines.mjs` | 기존 프로젝트 1회 마이그레이션 (legacy.json 거버넌스 필드 자동 작성 + 가능하면 manifest 추출). `--renew` 플래그로 expiresAt 갱신 |
+| 신규 | `scripts/check-legacy-additions.mjs` | CI 용 — PR diff 검사, 구현 PR 의 신규 legacy.json 추가 차단 |
+| 변경 | `scripts/check-visual-regression.mjs` | strict 옵션 + L2 mixed tolerance + section-root 별도 tolerance + multi-viewport 병렬 + Playwright 안정화 + manifest v2 + L1 mask (35% 상한) + strictEffective + G11 runtime sweep 통합 |
 | 변경 | `scripts/measure-quality.sh` | G11 추가, G1 strict default, fail-fast 순서, viewport 자동 감지 |
 | 변경 | `.claude/agents/section-worker.md` | anchor manifest 룰 + retry 카테고리 가이드 + escape budget |
 | 변경 | `docs/workflow.md` | 4.1/4.2 단계 갱신, baseline 갱신 프로토콜 (§13) 추가 |
@@ -453,9 +546,11 @@ bash scripts/measure-quality.sh hero src/components/sections/Hero.tsx
 | 상황 | 동작 |
 |---|---|
 | 신규 프로젝트, anchor json 부재 | **FAIL** (strict 강제, `legacy.json` 없으면 SKIP 못 함) |
-| 기존 프로젝트, `legacy.json` 만 추가 | L2 SKIP, L1 만 평가, `strictEffective: false` (가시화) |
-| 기존 프로젝트, `migrate-baselines.mjs` 실행 후 manifest 추출 성공 | 자동 strict 진입 |
+| 기존 프로젝트, `migrate-baselines.mjs` 가 발급한 valid `legacy.json` (createdBy/sourceCommit/expiresAt 포함, 미만료) | L2 SKIP, L1 + G11 만 평가, `strictEffective: false` (가시화) |
+| 기존 프로젝트, `migrate-baselines.mjs` 실행 후 manifest 추출 성공 | 자동 strict 진입 (legacy.json 발급 안 됨) |
 | 기존 프로젝트, manifest 추출 부분 성공 | 가능한 viewport 만 strict, 나머지 `legacy.json` 의 `skipViewports` 로 명시 |
+| `legacy.json` 거버넌스 필드 누락/위조 (createdBy 비화이트리스트, expiresAt 도과) | **FAIL** (`reason: "invalid legacy manifest"` 또는 `"legacy expired"`) |
+| 구현 PR 에서 새 `legacy.json` 추가 | CI 의 `check-legacy-additions.mjs` 가 차단 |
 | `LITE=1` env | 전체 strict 옵트아웃, `strictEffective: false`, `reason: "LITE env"` 가시화 |
 
 ### `LITE=1` 사용 정책
@@ -485,14 +580,22 @@ fixtures/strict-gate/
   fail-positioning/                            ← G11 absolute/fixed/sticky FAIL 기대
   fail-transform-overflow/                     ← G11 transform escape 초과 FAIL 기대
   fail-arbitrary-px/                           ← G11 매직 px > 3 FAIL 기대
+  fail-dynamic-classname/                      ← clsx("ab"+"solute") 정적엔 통과, runtime sweep FAIL
+  fail-css-module-position/                    ← .module.css 의 position:absolute, runtime sweep FAIL
   fail-anchor-required-missing/                ← G1 L2 required missing FAIL 기대
   fail-anchor-bbox-delta/                      ← G1 L2 bbox delta 초과 FAIL 기대
   fail-pixel-diff-no-mask/                     ← L1 5% 초과 (text-heavy mask 없이) FAIL 기대
   pass-text-heavy-with-mask/                   ← L1 ~12% 지만 text-block mask 로 PASS
-  pass-legacy-skip/                            ← legacy.json 으로 L2 SKIP, strictEffective: false
+  fail-mask-area-exceeded/                     ← text-block mask 면적 35% 초과 FAIL
+  fail-text-block-on-non-text-element/         ← role:text-block 가 div 에 박힘 FAIL
+  pass-legacy-valid/                           ← legacy.json (createdBy:migrate-baselines) 정상 SKIP
+  fail-legacy-invalid-creator/                 ← createdBy:worker 등 → invalid FAIL
+  fail-legacy-expired/                         ← expiresAt 도과 → FAIL
   fail-no-anchor-manifest/                     ← legacy.json 없는데 anchor json 부재 → FAIL
   fail-data-allow-escape-text-child/           ← data-allow-escape subtree 에 텍스트 → FAIL
   pass-data-allow-escape-decorative/           ← decorative SVG 에 정당 사용 → PASS
+  pass-import-clean-ui-component/              ← ui/ 단독 absolute 있어도 section import 안 함 → PASS
+  fail-import-dirty-ui-component/              ← ui/Wrapper.tsx 에 absolute, sections/Hero 가 import → FAIL (closure 검사)
 ```
 
 검증 스크립트:
@@ -535,6 +638,18 @@ Anchor changes:
 - Figma `lastModified` 는 **파일 전체** 변경일 — section node 만 변경됐는지 불명
 - 따라서 mtime 일치하면 SKIP, 불일치하면 강제 재추출 + 위 anchor diff report 로 검증
 
+### `legacy.json` 갱신 (codex v2 리뷰)
+
+legacy 의 `expiresAt` 갱신은 `migrate-baselines.mjs --renew --section <id>` 만 가능:
+- 새 expiresAt = 현재 + 90일
+- `sourceCommit` 갱신
+- "renewed" log 가 stdout 에 출력 (가시화)
+- `--renew` 는 단독 commit 으로 — 코드 변경 동반 시 CI 의 `check-legacy-additions.mjs` 가 차단
+
+만료된 legacy 가 있는 섹션은 다음 중 하나:
+1. `prepare-baseline.mjs` 로 manifest 추출 시도 → 성공하면 legacy 제거 + strict 진입
+2. `migrate-baselines.mjs --renew` 로 90일 연장 (실패한 strict 를 영구 회피하는 패턴 차단 — sourceCommit 추적 + 갱신 로그로 가시화)
+
 ## 14. 리스크 & 대응
 
 | 리스크 | 대응 |
@@ -547,7 +662,9 @@ Anchor changes:
 | 섹션당 ~50초 시간 부담 | Playwright 캐싱 + 3 viewport 병렬 + baseline 캐시. 첫 실행 50초, 재실행 30초 |
 | 호환 룰이 우회 경로화 | `legacy.json` 명시 manifest 만 SKIP 허용, `strictEffective: false` 항상 가시화, CI 에서 `LITE=1` 차단 |
 | Whitelist 디렉터리 (`ui/brand`) 에 absolute 숨겨서 import | Dependency closure 검사로 wrapper 컴포넌트도 escape budget 적용 |
-| Pseudo-element / SVG text / 동적 className | static 검사 한계. G11 은 명시적 패턴만 잡음. dynamic className (`clsx("ab" + "solute")`) 같은 케이스는 휴리스틱 (단순 정규식) 외 검사 어려움 — 알려진 한계 |
+| Pseudo-element / SVG text / 동적 className / CSS module | G11 의 **runtime sweep** 으로 차단 (codex v2 리뷰). 정적 검사로 못 잡는 동적 합성도 실제 적용된 computed style 로 검출 |
+| 워커가 큰 영역을 text-block 으로 잡아 mask 무력화 | mask 총면적 35% 상한 + text-bearing element 만 허용 (codex v2 리뷰) |
+| 실패한 strict 를 legacy.json 으로 덮는 운영 패턴 | createdBy 화이트리스트 + sourceCommit + 90일 expiresAt + CI 차단 (codex v2 리뷰) |
 | Chromium / Skia 버전 변경으로 baseline 깨짐 | Playwright minor 버전 고정. CI 에서 `npx playwright install --with-deps` 정확한 버전 |
 | 디버깅 비용 (어느 anchor / DOM 회귀인지 추적 어려움) | failure artifact: current/baseline/diff PNG + anchor delta table + DOM selector + screenshot crop |
 | 운영 SLO 부재 | dogfooding M10 에 false-positive < 5% 외 평균 runtime / retry율 / SKIP율도 기록 |
@@ -558,12 +675,12 @@ Anchor changes:
 |---|---|---|
 | M1 | `prepare-baseline.mjs` (figma + spec 통합, 캐싱, anchor diff report) | png + manifest 동시 생성, --force 시 diff report 출력 |
 | M2 | `extract-figma-anchors.mjs` (role 자동 추론) | 노드 트리 → manifest (required/optional/role/figmaNodeId 포함) |
-| M3 | `check-visual-regression.mjs` strict 확장 (Playwright 안정화 + L1 mask + L2 mixed tolerance + manifest v2) | fixture pass/ PASS, fail-pixel-diff-no-mask FAIL, pass-text-heavy-with-mask PASS |
-| M4 | `check-layout-escapes.mjs` (G11) | fixture fail-positioning / fail-transform-overflow / fail-arbitrary-px FAIL, pass/ PASS, dependency closure 검사 |
+| M3 | `check-visual-regression.mjs` strict 확장 (Playwright 안정화 + L1 mask + 35% 상한 + L2 mixed tolerance + section-root 별도 tolerance + manifest v2) | fixture pass/ PASS, fail-pixel-diff-no-mask FAIL, pass-text-heavy-with-mask PASS, fail-mask-area-exceeded FAIL |
+| M4 | `check-layout-escapes.mjs` (G11 정적 + runtime sweep + dependency closure) | fixture fail-positioning / fail-transform-overflow / fail-arbitrary-px FAIL, fail-dynamic-classname FAIL (runtime sweep 검출), pass/ PASS |
 | M5 | `measure-quality.sh` G11 추가 + fail-fast 순서 + viewport 자동 감지 + LITE=1 처리 | 통합 PASS/FAIL 일관성, LITE=1 시 strictEffective=false |
 | M6 | `section-worker.md` anchor manifest 룰 + retry 카테고리 + escape budget | 워커가 신규 룰 따라 박음 |
-| M7 | `migrate-baselines.mjs` + `bootstrap.sh` 신규 스크립트 복사 | 기존 프로젝트 1회 마이그레이션 (legacy.json 자동 생성 또는 manifest 추출) |
-| M8 | fixture 11종 + `test-strict-gates.sh` (multi-viewport 포함) | 모든 fixture 의도대로 PASS/FAIL |
+| M7 | `migrate-baselines.mjs` + `check-legacy-additions.mjs` + `bootstrap.sh` 신규 스크립트 복사 | 기존 프로젝트 1회 마이그레이션 (legacy.json 거버넌스 필드 자동 작성). CI 검사로 구현 PR 의 신규 legacy 추가 차단 |
+| M8 | fixture 18종 + `test-strict-gates.sh` (multi-viewport 포함) | 모든 fixture 의도대로 PASS/FAIL (positioning/transform/arbitrary-px/dynamic-classname/css-module/anchor-missing/bbox-delta/pixel-diff/mask-overflow/text-block-on-div/legacy-valid/legacy-invalid-creator/legacy-expired/no-manifest/escape-text-child/escape-decorative/import-clean/import-dirty) |
 | M9 | `docs/workflow.md` / `CLAUDE.md` 게이트 표 갱신 + §13 baseline 갱신 프로토콜 | G11 + G1 strict 명시, 디자인/구현 PR 분리 |
 | M10 | dogfooding 1개 페이지 (publish-harness 본 리포 또는 사용자 운영 프로젝트) | 실제 페이지 strict 통과, false-positive < 5%, 평균 runtime / retry율 / SKIP율 기록 |
 
@@ -584,12 +701,18 @@ M5 ─┐
           └─ M10 (dogfooding)
 ```
 
-## 16. 다음 단계
+## 16. v3 적용 후 알려진 한계 (의도된 제외)
+
+codex 2차 리뷰 중 plan 단계로 미룬 항목:
+
+- **#3 spec 모드 L2 공백** — reference HTML 기반 DOM anchor manifest 자동 생성. spec 모드는 보조 모드라 plan 단계에서 다룸. 현재는 spec 모드 = "partial strict" 로 명시 (L2 SKIP, L1 + escape budget + 멀티뷰포트만)
+- **#5 escape budget 가중치** — 현재 단순 카운트 (transform ≤2 등). implementation 시 false-positive/negative 데이터 보고 가중치 도입 검토. v3 의 단순 룰로 시작하고 dogfooding 결과로 조정.
+- **G1 CLI 인터페이스 변경 마이그레이션** (LOW) — 기존 호출자 영향 plan 단계에서 정리
+- **measure-quality.sh fail-fast 순서 backward compat** (LOW) — JSON 출력 키 호환성
+- **multi-viewport fixture 정확한 baseline PNG 생성** (LOW) — fixture 구축은 implementation 작업
+
+## 17. 다음 단계
 
 이 spec 승인 → `superpowers:writing-plans` 스킬로 구현 플랜 작성. 마일스톤 M1~M10 을 실행 가능한 작은 단위로 분해.
 
-LOW priority 처리 (codex 1차 리뷰 중 plan 단계 위임):
-- G1 CLI 인터페이스 변경의 정확한 마이그레이션 단계
-- `measure-quality.sh` fail-fast 순서 변경의 backward compat 처리
-- multi-viewport fixture 의 정확한 baseline 데이터 (실제 PNG 생성)
-- 운영 시나리오 추가 케이스 (Figma node rename / partial viewport 갱신)
+§16 의 알려진 한계 항목들도 plan 단계에서 위임 처리.
