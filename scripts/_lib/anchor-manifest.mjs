@@ -9,7 +9,8 @@
  *   anchors: [
  *     {
  *       id: string,                   // 예: "hero/title"
- *       role: string,                 // section-root | primary-heading | primary-cta | primary-media | text-block | decorative | secondary-* | unknown
+ *       role: string,                 // section-root | primary-heading | primary-cta | primary-media | text-block | decorative | unknown
+ *                                   //   (secondary-* and other open-ended values may appear in manifests but are not enumerated in ROLES)
  *       required: boolean,
  *       figmaNodeId: string | null,
  *       bbox: { x, y, w, h }
@@ -59,6 +60,10 @@ export function validateManifest(manifest) {
   const errors = [];
   if (!manifest) {
     errors.push("manifest is null");
+    return errors;
+  }
+  if (!Array.isArray(manifest.anchors)) {
+    errors.push("anchors field missing or not an array");
     return errors;
   }
   const ids = new Set();
