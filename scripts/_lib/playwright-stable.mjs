@@ -5,6 +5,8 @@
  * - animation/transition 정지
  * - 이미지 loading 대기
  * - deviceScaleFactor 고정 (브라우저 컨텍스트 단계)
+ * Note: stabilizePage injects a permanent style tag disabling animation/transition.
+ *       Do not reuse the same page for animation-dependent assertions.
  */
 
 export const STABLE_VIEWPORTS = Object.freeze({
@@ -27,7 +29,7 @@ export async function newStableContext(browser, viewport) {
 export async function stabilizePage(page, { url, timeout = 15000 }) {
   await page.goto(url, { waitUntil: "networkidle", timeout });
   // 웹폰트 로딩 완료 보장
-  await page.evaluate(() => document.fonts && document.fonts.ready);
+  await page.evaluate(() => document.fonts?.ready ?? Promise.resolve());
   // 애니메이션/트랜지션 frozen
   await page.addStyleTag({
     content: `*, *::before, *::after { animation: none !important; transition: none !important; }`,
