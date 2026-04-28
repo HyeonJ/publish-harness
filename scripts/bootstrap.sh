@@ -309,6 +309,12 @@ cp "$HARNESS_DIR/scripts/check-write-protection.mjs" scripts/
 cp "$HARNESS_DIR/scripts/write-protected-paths.json" scripts/
 cp "$HARNESS_DIR/scripts/assemble-page-preview.mjs" scripts/
 cp "$HARNESS_DIR/scripts/check-visual-regression.mjs" scripts/
+# strict visual harness 추가 스크립트 (T1-T22)
+cp "$HARNESS_DIR/scripts/extract-figma-anchors.mjs" scripts/
+cp "$HARNESS_DIR/scripts/prepare-baseline.mjs" scripts/
+cp "$HARNESS_DIR/scripts/check-layout-escapes.mjs" scripts/
+cp "$HARNESS_DIR/scripts/migrate-baselines.mjs" scripts/
+cp "$HARNESS_DIR/scripts/check-legacy-additions.mjs" scripts/
 cp "$HARNESS_DIR/scripts/fetch-figma-baseline.sh" scripts/
 cp "$HARNESS_DIR/scripts/render-spec-baseline.mjs" scripts/
 cp "$HARNESS_DIR/scripts/measure-quality.sh" scripts/
@@ -482,4 +488,8 @@ else
   echo "  4. Claude Code 세션에서:"
   echo "     \"publish-harness 스킬로 Foundation 컴포넌트부터 진행\""
 fi
+echo ""
+echo "📦 strict visual harness 의존성 (선택, 없으면 G1 SKIP):"
+echo "   npm i -D playwright pixelmatch pngjs"
+echo "   npx playwright install chromium"
 echo ""
