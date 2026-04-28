@@ -20,8 +20,14 @@ function parseArgs(argv) {
   const opts = {};
   for (let i = 0; i < argv.length; i++) {
     if (argv[i].startsWith("--")) {
-      opts[argv[i].slice(2)] = argv[i + 1];
-      i++;
+      const key = argv[i].slice(2);
+      const next = argv[i + 1];
+      if (next !== undefined && !next.startsWith("--")) {
+        opts[key] = next;
+        i++;
+      } else {
+        opts[key] = true;
+      }
     }
   }
   return opts;
@@ -56,6 +62,10 @@ if (!sectionNode) {
 }
 
 const sectionAbs = sectionNode.absoluteBoundingBox;
+if (!sectionAbs) {
+  console.error("ERROR: section root node has no absoluteBoundingBox");
+  process.exit(1);
+}
 
 function isMeaningfulName(name) {
   if (!name) return false;
