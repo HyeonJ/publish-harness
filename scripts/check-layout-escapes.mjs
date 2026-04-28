@@ -11,8 +11,8 @@
  *     [--budget-negative-margin 2] [--budget-arbitrary-px 3] [--budget-breakpoint 2]
  */
 
-import { existsSync, readFileSync } from "node:fs";
-import { resolve, dirname } from "node:path";
+import { existsSync } from "node:fs";
+import { resolve } from "node:path";
 import { detectEscapesInFile, detectAllowedEscapeRanges, extractDependencyClosure, ALLOWED_ESCAPE_REASONS } from "./_lib/escape-detect.mjs";
 
 function parseArgs(argv) {
@@ -44,7 +44,12 @@ function parseArgs(argv) {
 const opts = parseArgs(process.argv.slice(2));
 if (!opts.section || !opts.files) { console.error("usage: --section <id> --files \"f1 f2\""); process.exit(2); }
 
-const fileList = opts.files.split(/\s+/).filter((f) => f && existsSync(f));
+const requestedFiles = opts.files.split(/\s+/).filter((f) => f);
+const fileList = [];
+for (const f of requestedFiles) {
+  if (existsSync(f)) fileList.push(f);
+  else console.error(`WARN: file not found, dropping from analysis: ${f}`);
+}
 const projectRoot = process.cwd();
 
 // 정적 축
@@ -121,6 +126,9 @@ for (const r of staticResults) {
 
 // runtime 축 (선택)
 let runtimeResult = null;
+if (opts.runtime && !opts.url) {
+  console.error("WARN: --runtime requires --url; runtime sweep skipped");
+}
 if (opts.runtime && opts.url) {
   try {
     const { chromium } = await import("playwright");
@@ -162,7 +170,13 @@ const limits = {
   breakpointDivergence: opts["budget-breakpoint"],
 };
 for (const cat of Object.keys(limits)) {
-  if (budgetCounts[cat] > limits[cat]) overBudget.push({ category: cat, count: budgetCounts[cat], limit: limits[cat] });
+  if (budgetCounts[cat] > limits[cat]) {
+    const entry = { category: cat, count: budgetCounts[cat], limit: limits[cat] };
+    if (cat === "positioning" && escapeCounts.positioningHelper > 0) {
+      entry.merged = { positioning: escapeCounts.positioning, positioningHelper: escapeCounts.positioningHelper };
+    }
+    overBudget.push(entry);
+  }
 }
 
 const fail = overBudget.length > 0;
