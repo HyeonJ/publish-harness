@@ -7,7 +7,7 @@
  *   node scripts/check-legacy-additions.mjs --base origin/main --head HEAD
  */
 
-import { execSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 
 function parseArgs(argv) {
   const o = { base: "origin/main", head: "HEAD" };
@@ -18,12 +18,21 @@ function parseArgs(argv) {
 }
 const opts = parseArgs(process.argv.slice(2));
 
+function gitDiff(args) {
+  const r = spawnSync("git", ["diff", ...args], { encoding: "utf8" });
+  if (r.status !== 0) {
+    const msg = (r.stderr || r.error?.message || "git diff failed").split("\n")[0];
+    throw new Error(msg);
+  }
+  return r.stdout.trim().split("\n").filter(Boolean);
+}
+
 let added, changed;
 try {
-  added = execSync(`git diff --diff-filter=A --name-only ${opts.base}..${opts.head}`, { encoding: "utf8" }).trim().split("\n").filter(Boolean);
-  changed = execSync(`git diff --name-only ${opts.base}..${opts.head}`, { encoding: "utf8" }).trim().split("\n").filter(Boolean);
+  added = gitDiff(["--diff-filter=A", "--name-only", `${opts.base}..${opts.head}`]);
+  changed = gitDiff(["--name-only", `${opts.base}..${opts.head}`]);
 } catch (e) {
-  console.error(`ERROR: git diff failed (${e.message.split("\n")[0]})`);
+  console.error(`ERROR: git diff failed (${e.message})`);
   process.exit(2);
 }
 
@@ -49,5 +58,6 @@ console.log(JSON.stringify({
   reason: "구현 PR 에 신규 legacy.json 추가 — migrate-baselines 단독 PR 로 분리하세요",
   addedLegacy,
   codeChanges: codeChanges.slice(0, 10),
+  codeChangesTotal: codeChanges.length,
 }));
 process.exit(1);
