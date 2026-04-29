@@ -564,10 +564,65 @@ bash scripts/measure-quality.sh {section} public/__preview/{section} --files "$F
 - ❌ `previous_failures` 무시하고 같은 접근 반복
 - ❌ `failures[].category` 에 임의 이름 사용 (9개 enum 외 금지)
 - ❌ [ACCEPTED_DEBT] 태그 자체 판단
+- ❌ section 파일 (또는 section import 한 first-party 컴포넌트) 에서 `position: absolute/fixed/sticky` 사용 (G11 차단). 진짜 데코면 `data-allow-escape="<enum>"`
+- ❌ Tailwind 매직 px (`w-[37px]`, `top-[12px]`) 남용 — 토큰 또는 standard 값 (4/8/16/24…) 사용
+- ❌ G11 의 budget 카테고리 임계 초과
 - ❌ npm 신규 패키지 추가 (필요시 오케에 요청)
 - ❌ Framelink MCP 호출 (영구 폐기)
 - ❌ text-bearing composite raster 사용 (G6로 차단)
 - ❌ `required_imports` 명시된 공통 컴포넌트를 무시하고 인라인 재구현 (DRY 위반)
+
+## anchor 박는 룰 (G1 strict)
+
+implementation 시 다음 element 에 `data-anchor` 박아라:
+
+- **section 루트**: `data-anchor="<section-id>/root"` 필수
+- **텍스트 헤딩** (h1/h2/h3): `data-anchor="<section-id>/heading"` 또는 의미명
+- **주요 CTA** (button/link): `data-anchor="<section-id>/cta"`
+- **메인 이미지/일러스트**: `data-anchor="<section-id>/image"`
+- **텍스트 본문 영역**: `data-anchor="<section-id>/<name>" data-role="text-block"` (선택)
+- 디자인이 명명한 element (Figma 노드 이름) → kebab-case 슬러그
+- 6~10개 권장. kebab-case. `<section-id>/` prefix 필수
+
+baseline manifest 에 `required: true` 표시된 anchor 는 **반드시** 박을 것 (없으면 G1 L2 FAIL).
+
+가능하면 `data-anchor-figma-node="<nodeId>"` 도 함께 박음 (이름 변경 강인성 ↑).
+
+## G11 escape budget (절대 금지 + 카운트 제한)
+
+section root subtree (= `data-anchor="<id>/root"` 자손 + import 한 first-party 컴포넌트) 에서:
+
+| 카테고리 | 임계 |
+|---|---|
+| `position: absolute/fixed/sticky` (root 제외) | 0개 |
+| `transform: translate(*)`, Tailwind `translate-x/y-[N]px` | ≤ 2개 |
+| negative margin (`-m*`, `-mt-`, `-ml-`) | ≤ 2개 |
+| arbitrary px (`w-[37px]` 등 토큰 외) | ≤ 3개 |
+| breakpoint별 매직 px (`md:left-[37px]`) | ≤ 2개 |
+
+**원칙**: 절대 좌표/매직 px 로 픽셀 맞추지 마라. 디자인 의도는 flex/grid + 토큰 으로 표현.
+
+예외 (data-allow-escape):
+
+```tsx
+<svg data-allow-escape="connector-line" className="absolute -right-8 top-0" aria-hidden="true">...</svg>
+```
+
+- reason 은 정해진 enum: `decorative-overlap` / `connector-line` / `badge-offset` / `sticky-nav` / `animation-anchor`
+- section 당 ≤ 2회 사용
+- 자식에 텍스트 element/text node 있으면 무효
+
+## retry 카테고리 가이드 (게이트 FAIL 시)
+
+| FAIL | 행동 |
+|---|---|
+| G11 escape budget 초과 | 카테고리별 룰 따라 재구성. transform→flex/grid, negative margin→상위 wrapper 정리, 매직 px→토큰 사용 |
+| G1 L1 pixel diff | tests/quality/diffs/<section>-<viewport>.diff.png 확인. spacing/typography 토큰 점검 |
+| G1 L2 anchor required missing | stdout 의 missing 리스트 그대로 박기 |
+| G1 L2 bbox delta | 해당 anchor element 의 width/height/margin 점검. **escape budget 남발 금지** (G11 으로 재차단) |
+| G1 NO_BASELINE | 사용자 개입 분기로 돌려보냄 (baseline 갱신 또는 prepare-baseline 호출) |
+| G1 NO_MANIFEST + legacy.json 부재 | strict 강제 — 사용자 개입 분기 |
+| G1 dimension mismatch | section 전체 크기 재점검 |
 
 ## 소스 채널 정책
 
