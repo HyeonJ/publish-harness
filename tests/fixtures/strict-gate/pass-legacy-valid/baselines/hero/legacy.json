@@ -1,0 +1,10 @@
+{
+  "version": 2,
+  "reason": "test",
+  "skipL2": true,
+  "skipViewports": ["tablet","mobile"],
+  "createdAt": "2026-04-28",
+  "createdBy": "migrate-baselines",
+  "sourceCommit": "abc1234",
+  "expiresAt": "2099-12-31"
+}
