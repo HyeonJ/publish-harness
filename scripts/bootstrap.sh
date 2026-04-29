@@ -327,6 +327,7 @@ echo "[bootstrap] 5/9 docs/ 복사"
 mkdir -p docs
 cp "$HARNESS_DIR/docs/workflow.md" docs/
 cp "$HARNESS_DIR/docs/team-playbook.md" docs/
+cp "$HARNESS_DIR/docs/responsive-figma-generator.md" docs/
 # project-context.md.tmpl → project-context.md (치환)
 if [ -f "$HARNESS_DIR/docs/project-context.md.tmpl" ]; then
   PREVIEW_URL_DISPLAY="http://127.0.0.1:5173"
