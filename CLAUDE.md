@@ -6,7 +6,7 @@
 
 1. **작업 단위 = 섹션/컴포넌트.** 한 단위 = 한 브랜치 = 한 커밋
 2. **디자인 토큰이 진실의 원천.** `src/styles/tokens.css`를 쓰고, hex literal 직접 기입 금지 (예외: `#fff`/`#000` 중립값 허용 — G4 화이트리스트 참조)
-3. **게이트 PASS 없이 커밋 금지.** G4/G5/G6/G8 전부 통과 필요
+3. **게이트 PASS 없이 커밋 금지.** G1 strict / G4 / G5 / G6 / G8 / G10 / G11 전부 통과 필요
 4. **소스 채널 고정** (모드별):
    - figma 모드: Figma 에셋은 **REST API로 다운로드** (`scripts/figma-rest-image.sh`)
    - spec 모드: **`docs/components-spec.md` + `src/styles/tokens.css`** 가 진실의 원천. Figma REST/MCP 호출 금지
@@ -71,20 +71,21 @@
 
 | G | 도구 | 의미 |
 |---|---|---|
+| G1 | `check-visual-regression.mjs` (strict) | L1 pixel ≤ 5% (text-block mask 35% 상한) + L2 DOM bbox max(4px, 1%) + 3 viewport 통과 + manifest v2 + legacy 거버넌스 |
 | G4 | `check-token-usage.mjs` | hex literal / 토큰 외 색상 금지 |
 | G5 | `eslint` (jsx-a11y) | 시맨틱 HTML, a11y |
 | G6 | `check-text-ratio.mjs` | 텍스트 baked-in raster 차단 |
 | G8 | `check-text-ratio.mjs` | JSX에 literal text 존재 (i18n 가능) |
 | G10 | `check-write-protection.mjs` | tokens.css / fonts.css / tailwind.config / components-spec.md 등 SSoT 수정 차단 |
+| G11 | `check-layout-escapes.mjs` | layout escape budget (absolute/fixed/sticky/transform/negative margin/매직 px/breakpoint divergence) — 정적 + dependency closure + Playwright runtime sweep |
 
 ### 선택적 게이트 (환경/baseline 있을 때만 평가)
 
 | G | 도구 | SKIP 조건 | FAIL 조건 |
 |---|---|---|---|
-| G1 | `check-visual-regression.mjs` (playwright + pixelmatch) | deps 미설치 / chromium 미설치 / baseline 없음 / dev 서버 미기동 | diff > 2% (또는 치수 불일치) |
 | G7 | `@lhci/cli` | `@lhci/cli` 미설치 / preview 라우트 미접근 | a11y < 95 또는 seo < 90 |
 
-**G1 원칙**: baseline 없음 (`NO_BASELINE`) 이나 환경 미비 (`SKIPPED`) 는 차단하지 않음. diff 가 threshold 초과할 때만 FAIL. baseline 은 `baselines/<section>/<viewport>.png` 규약.
+**G1 strict 원칙**: default 차단. 신규 프로젝트는 anchor manifest 부재 시 FAIL. 기존 프로젝트는 `baselines/<section>/legacy.json` (createdBy: migrate-baselines, 90일 expiresAt) 만 SKIP 허용. `LITE=1` env 로 개발 로컬 우회 가능 (CI 차단). 결과 JSON 의 `strictEffective` 필드로 가시화.
 
 실행: `bash scripts/measure-quality.sh <section> <section-dir> [--viewport desktop|tablet|mobile]`
 
