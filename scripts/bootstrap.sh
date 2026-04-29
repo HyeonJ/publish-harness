@@ -315,8 +315,6 @@ cp "$HARNESS_DIR/scripts/prepare-baseline.mjs" scripts/
 cp "$HARNESS_DIR/scripts/check-layout-escapes.mjs" scripts/
 cp "$HARNESS_DIR/scripts/migrate-baselines.mjs" scripts/
 cp "$HARNESS_DIR/scripts/check-legacy-additions.mjs" scripts/
-cp "$HARNESS_DIR/scripts/fetch-figma-baseline.sh" scripts/
-cp "$HARNESS_DIR/scripts/render-spec-baseline.mjs" scripts/
 cp "$HARNESS_DIR/scripts/measure-quality.sh" scripts/
 cp "$HARNESS_DIR/scripts/doctor.sh" scripts/
 cp "$HARNESS_DIR/scripts/setup-figma-token.sh" scripts/

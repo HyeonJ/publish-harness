@@ -334,20 +334,16 @@ Baseline 확보 (모드별):
 
 **figma 모드**:
 ```bash
-bash scripts/fetch-figma-baseline.sh <fileKey> <nodeId> <section> desktop
-# 반응형: tablet/mobile 추가
+node scripts/prepare-baseline.mjs --mode figma --section <section> --viewports desktop --file-key <fileKey> --section-node <nodeId>
+# 반응형: --viewports desktop,tablet,mobile
 ```
 
-**spec 모드** (두 경로):
-```bash
-# A) reference HTML 로부터 자동 렌더
-node scripts/render-spec-baseline.mjs \
-  --html directions/direction-A-final.html \
-  --section home-hero \
-  --viewport desktop \
-  --selector "section.hero"
+**spec 모드**:
 
-# B) 구현 후 현 상태를 baseline 으로 고정
+spec 모드 baseline 자동 생성은 LOW 위임 — 수동으로 `baselines/<section>/<viewport>.png` 준비 필요.
+
+```bash
+# 구현 후 현 상태를 baseline 으로 고정
 node scripts/check-visual-regression.mjs \
   --section home-hero \
   --baseline baselines/home-hero/desktop.png \
@@ -366,7 +362,7 @@ npx playwright install chromium
 # 2. 섹션 하나 구현 (Phase 3 완료된 섹션 예: home-hero)
 
 # 3. Figma baseline 확보
-bash scripts/fetch-figma-baseline.sh $FILE_KEY $NODE_ID home-hero desktop
+node scripts/prepare-baseline.mjs --mode figma --section home-hero --viewports desktop --file-key $FILE_KEY --section-node $NODE_ID
 
 # 4. dev 서버 기동 (별도 터미널)
 npm run dev

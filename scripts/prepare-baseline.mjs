@@ -98,21 +98,12 @@ async function prepareViewport(viewport) {
       { stdio: "inherit" }
     );
   } else if (opts.mode === "spec") {
+    // --reference-html 검증 — 의도 문서화용 (실제 호출은 LOW 위임)
     if (!opts["reference-html"]) {
-      throw new Error("spec 모드는 --reference-html 필요");
+      console.error("WARN: --reference-html 없음 (spec 모드 baseline 자동 생성은 LOW 위임 (#3))");
     }
-    // spec 모드 baseline + DOM anchor: Phase 6 LOW 위임 (M1 v3 한계). 현재는 png 만 생성.
-    // TODO(plan 단계 위임 #3): reference HTML 의 [data-anchor] 추출.
-    const refPath = resolve(opts["reference-html"]);
-    if (!existsSync(refPath)) throw new Error(`reference HTML not found: ${refPath}`);
-    // Playwright 로 reference 렌더 후 fullpage 캡처 — render-spec-baseline.mjs 흡수
-    // (구현은 인라인이 너무 큼 — 일단 외부 헬퍼 호출. 호환 위해 기존 render-spec-baseline.mjs 재사용)
-    execSync(
-      `node "${SCRIPT_DIR}/render-spec-baseline.mjs" --reference "${refPath}" --viewport "${viewport}" --out "${pngPath}"`,
-      { stdio: "inherit" }
-    );
-    // anchor json: spec 모드는 partial strict — 자동 생성 시도하되 실패해도 OK
-    // (현재는 manifest 없음 = L2 SKIP, partial strict)
+    console.error(`spec 모드 baseline 자동 생성은 LOW 위임 (#3) — 수동으로 baselines/<section>/<viewport>.png 준비 필요`);
+    return { viewport, status: "SKIPPED_SPEC_MODE", reason: "spec mode auto-prep deferred", pngPath, manifestPath };
   }
 
   let diffReport = null;
