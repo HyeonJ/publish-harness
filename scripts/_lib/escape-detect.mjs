@@ -203,4 +203,8 @@ export const ALLOWED_ESCAPE_REASONS = new Set([
   "badge-offset",
   "sticky-nav",
   "animation-anchor",
+  // B-7 (beverage-product §retro-phase1-4): figma scattered/masonry layout 의
+  // 정당한 absolute positioning. analyze-page-structure.mjs 가 자동 detect 한
+  // tier1-scattered 섹션에서 사용. flex column 단순화 금지 (figma 의도 보존).
+  "figma-scattered-layout",
 ]);

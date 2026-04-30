@@ -315,6 +315,9 @@ cp "$HARNESS_DIR/scripts/prepare-baseline.mjs" scripts/
 cp "$HARNESS_DIR/scripts/check-layout-escapes.mjs" scripts/
 cp "$HARNESS_DIR/scripts/migrate-baselines.mjs" scripts/
 cp "$HARNESS_DIR/scripts/check-legacy-additions.mjs" scripts/
+# beverage-product 회고 §B-3+B-6+B-7: Phase 2 분해 자동 분석 + 텍스트 콘텐츠 추출
+cp "$HARNESS_DIR/scripts/analyze-page-structure.mjs" scripts/
+cp "$HARNESS_DIR/scripts/extract-text-content.mjs" scripts/
 cp "$HARNESS_DIR/scripts/measure-quality.sh" scripts/
 cp "$HARNESS_DIR/scripts/doctor.sh" scripts/
 cp "$HARNESS_DIR/scripts/setup-figma-token.sh" scripts/

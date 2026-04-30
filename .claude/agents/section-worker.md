@@ -333,6 +333,20 @@ export default function ButtonPreview() {
 
 `figma_node_id_tablet` / `figma_node_id_mobile` 둘 다 없음 → 휴리스틱 적용.
 
+**B-8 (beverage-product §retro-phase1-4) — Tier 1 의 desktop layout 침식 차단**:
+
+> Tier 1 휴리스틱은 **mobile/tablet 변환에만 적용**. Desktop 은 figma 좌표 / topology 그대로 보존.
+> desktop 에서 figma 가 scattered/zigzag/masonry 면 **그대로 구현 (flex column 단순화 금지)**.
+> beverage-product §M11: section-3-features 가 figma scattered → flex column 으로 단순화한 사고 차단.
+
+**B-7 자동 detect** — `docs/page-structure.md` (analyze-page-structure.mjs 산출) 가
+존재하면 자기 섹션의 `layoutTopology` 확인:
+- `linear` → 아래 휴리스틱 표 적용 OK
+- `scattered` → desktop 은 figma 좌표 비율 보존 (CSS Grid template areas /
+  absolute positioning) + `data-allow-escape="figma-scattered-layout"` 사용. flex column
+  단순화 금지. mobile/tablet 만 stack 변환.
+- `tier1-scattered` → 같음 (자동 brand_guardrails 추가)
+
 **Desktop 패턴 → Mobile 변환 규칙**:
 
 | Desktop 패턴 | Mobile-first 작성 |
