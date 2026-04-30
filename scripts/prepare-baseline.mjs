@@ -21,7 +21,25 @@
 import { execSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync, unlinkSync } from "node:fs";
 import { resolve, dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { readManifest } from "./_lib/anchor-manifest.mjs";
+
+// B3 — Windows async crash 핸들링 (modern-retro-strict §retro-phase1-4 B3).
+// 3번째 워커 시점부터 매번 재현되던 비정상 종료의 root cause 가 stack trace 없이
+// 추적 어려움. defensive 처리:
+//   1. unhandledRejection / uncaughtException 핸들러로 graceful exit (silent crash 방지)
+//   2. import.meta.url → SCRIPT_DIR 변환을 fileURLToPath 로 정규화 (Windows path)
+//   3. execSync 의 stdio 를 'inherit' 유지하되 에러 발생 시 명확한 메시지 + non-zero exit
+process.on("unhandledRejection", (reason) => {
+  console.error("\n[prepare-baseline] unhandledRejection:");
+  console.error(reason && reason.stack ? reason.stack : reason);
+  process.exit(1);
+});
+process.on("uncaughtException", (err) => {
+  console.error("\n[prepare-baseline] uncaughtException:");
+  console.error(err && err.stack ? err.stack : err);
+  process.exit(1);
+});
 
 function parseArgs(argv) {
   const opts = { force: false };
@@ -41,7 +59,10 @@ const viewports = opts.viewports.split(",").map((v) => v.trim());
 const baselineDir = resolve(`baselines/${opts.section}`);
 mkdirSync(baselineDir, { recursive: true });
 
-const SCRIPT_DIR = dirname(new URL(import.meta.url).pathname.replace(/^\/(\w):/, "$1:"));
+// fileURLToPath 가 Windows 의 `file:///C:/...` → `C:\...` 변환을 표준 처리.
+// 기존 정규식 (`pathname.replace(/^\/(\w):/, "$1:")`) 은 forward slash 와 mixed
+// separator 가 fs/url 모듈에서 깨지는 케이스 발생 → 잠재 crash 원인.
+const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 
 async function diffManifests(oldPath, newPath) {
   const oldM = readManifest(oldPath);
