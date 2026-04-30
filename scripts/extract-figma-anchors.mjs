@@ -75,10 +75,24 @@ function isMeaningfulName(name) {
   return true;
 }
 
-function inferRole(node, depth) {
+// N2 가드 (a): interactive 부모 이름 패턴 — 이 안의 TEXT 자식은 text-block role 부여 금지
+//   회고 §F3-(a): Header 워커가 anchor data-role="text-block" 을 <a> 링크에 할당하니
+//   G1 L2 매칭 실패 (text-bearing semantic element 검사). manifest 단계에서 차단.
+const INTERACTIVE_NAME_PATTERN = /button|cta|link|btn/i;
+
+function isInteractiveAncestor(parents) {
+  return parents.some((p) =>
+    (p.type === "INSTANCE" || p.type === "COMPONENT" || p.type === "FRAME") &&
+    INTERACTIVE_NAME_PATTERN.test(p.name || "")
+  );
+}
+
+function inferRole(node, depth, parents) {
   const name = (node.name || "").toLowerCase();
   if (depth === 0) return ROLES.SECTION_ROOT;
   if (node.type === "TEXT") {
+    // 가드 (a): interactive 부모 안 텍스트는 text-block role 부여 금지
+    if (isInteractiveAncestor(parents)) return null; // skip — CTA/link 의 텍스트는 부모 anchor 가 cover
     const fs = node.style?.fontSize || 0;
     if (fs >= 32) return ROLES.PRIMARY_HEADING;
     return ROLES.TEXT_BLOCK;
@@ -94,14 +108,33 @@ function inferRole(node, depth) {
   return null; // skip
 }
 
+// N2 가드 (b): 0-size element 제외
+//   회고 §F3-(b): SVG path 같은 0-size 노드를 optional anchor 로 포함시키니
+//   getBoundingClientRect 매칭 실패. 추출 단계에서 제외.
+function hasMeasurableBbox(abs) {
+  return abs && abs.width > 0 && abs.height > 0;
+}
+
 const anchors = [];
-function walk(node, depth = 0) {
-  const role = inferRole(node, depth);
-  if (role && node.absoluteBoundingBox) {
+// N2 가드 (c): sibling name collision — 같은 id 면 -1, -2 suffix 자동 부여.
+//   회고 §F3-(c): "2025"×2 / "2024"×2 같은 이름 collision 으로 about-founder 워커가
+//   수동 분리. 추출 단계에서 자동 처리.
+const idCounter = new Map();
+function uniqueId(baseId) {
+  const count = idCounter.get(baseId) || 0;
+  idCounter.set(baseId, count + 1);
+  return count === 0 ? baseId : `${baseId}-${count + 1}`;
+}
+
+function walk(node, depth = 0, parents = []) {
+  const role = inferRole(node, depth, parents);
+  if (role && hasMeasurableBbox(node.absoluteBoundingBox)) {
     const abs = node.absoluteBoundingBox;
-    const id = `${opts.section}/${slugify(node.name || `node-${node.id}`)}`;
+    const baseId = depth === 0
+      ? `${opts.section}/root`
+      : `${opts.section}/${slugify(node.name || `node-${node.id}`)}`;
     anchors.push({
-      id: depth === 0 ? `${opts.section}/root` : id,
+      id: uniqueId(baseId),
       role,
       required: [
         ROLES.SECTION_ROOT,
@@ -119,7 +152,8 @@ function walk(node, depth = 0) {
     });
   }
   if (node.children) {
-    for (const c of node.children) walk(c, depth + 1);
+    const nextParents = [...parents, node];
+    for (const c of node.children) walk(c, depth + 1, nextParents);
   }
 }
 
