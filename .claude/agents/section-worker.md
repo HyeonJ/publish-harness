@@ -118,7 +118,15 @@ model: sonnet
 #### figma 모드
 
 - 정적 에셋: 각 에셋 nodeId로 `figma-rest-image.sh` 호출 → `src/assets/{section}/{name}.png`
-  - **leaf nodeId만 사용**. 부모 frame nodeId로 export하면 text-bearing raster 안티패턴 발생 (G6 FAIL)
+  - **leaf image node 만 사용** (필수). 부모 frame nodeId 로 export 하면 자식 textbox/button
+    까지 raster 화 → 이중 렌더 사고 (modern-retro-strict main-hero-defect)
+  - 허용 type: `RECTANGLE` (with image fill) / `VECTOR` / `INSTANCE` (image component)
+  - **차단 type**: `FRAME` / `GROUP` / `SECTION` / `CANVAS` — `figma-rest-image.sh` 가
+    Step 0 type 검증으로 자동 exit 2 (`ALLOW_FRAME=1` 우회 가능 — F7 frame fill IMAGE 한정)
+  - **사람 눈 검증 1단계**: 다운로드 직후 PNG 를 1번 열어보거나 `image (image)` Read tool 로
+    확인. 의도한 element 만 들어있는지 (textbox/button 동봉되어 있지 않은지) 즉시 체크
+  - leaf 식별이 안 되면 (예: frame fill IMAGE 케이스) `get_design_context` 결과의
+    `imageRef` UUID 로 raw raster 다운로드 시도 (회고 N8 — 미구현 시 사용자 보고)
 - 동적 에셋(GIF/MP4/VIDEO): 원본 다운로드 금지. 부모 컨테이너 nodeId로 정적 PNG 한 장만 export → `{name}-static.png`
 - 다운로드 후 `file` 명령으로 실제 타입 vs 확장자 검증. 불일치 시 rename
 

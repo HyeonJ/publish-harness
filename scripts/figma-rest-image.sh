@@ -22,13 +22,18 @@
 #   --format fmt png | jpg | svg | pdf (default: png)
 #
 # 환경변수:
-#   FIGMA_TOKEN  Figma Personal Access Token (필수)
-#                Windows: powershell env var로 저장 후 이 스크립트가 자동 로드
-#                macOS/Linux: export FIGMA_TOKEN=figd_...
+#   FIGMA_TOKEN   Figma Personal Access Token (필수)
+#                 Windows: powershell env var로 저장 후 이 스크립트가 자동 로드
+#                 macOS/Linux: export FIGMA_TOKEN=figd_...
+#   ALLOW_FRAME   =1 시 FRAME/GROUP/SECTION nodeId 차단 우회. 기본값 비설정.
+#                 이유: FRAME nodeId 를 image asset 으로 export 하면 자식
+#                 textbox/button 도 같이 raster 화 → 이중 렌더 사고
+#                 (modern-retro-strict main-hero-defect). 정당한 케이스
+#                 (회고 F7 — frame fill IMAGE) 에서만 ALLOW_FRAME=1 사용.
 #
 # 종료 코드:
 #   0 성공
-#   2 인자 오류 / 환경 미설정
+#   2 인자 오류 / 환경 미설정 / 노드 type 차단
 #   3 API 호출 실패 (Figma 서버 에러 또는 권한 없음)
 #   4 S3 다운로드 실패
 
@@ -81,10 +86,49 @@ if [ -z "${FIGMA_TOKEN:-}" ]; then
   exit 2
 fi
 
+# ---------- Step 0: 노드 type 검증 (modern-retro-strict main-hero-defect 차단) ----------
+# FRAME/GROUP/SECTION nodeId 를 image asset 으로 export 하면 자식 textbox/button
+# 도 같이 raster 화 → 이중 렌더 사고. leaf image node (RECTANGLE/VECTOR/INSTANCE)
+# 만 허용. 정당한 frame fill IMAGE 케이스 (회고 F7) 는 ALLOW_FRAME=1 로 우회.
+NODES_URL="https://api.figma.com/v1/files/${FILE_KEY}/nodes?ids=${NODE_ID}&depth=0"
+NODES_JSON=$(curl -sS -H "X-Figma-Token: ${FIGMA_TOKEN}" "$NODES_URL")
+NODE_TYPE=$(echo "$NODES_JSON" | node -e "
+let j='';
+process.stdin.on('data',d=>j+=d);
+process.stdin.on('end',()=>{
+  try {
+    const o = JSON.parse(j);
+    const node = o.nodes && o.nodes['${NODE_ID}'];
+    if (node && node.document && node.document.type) {
+      process.stdout.write(node.document.type);
+    }
+  } catch(e) {}
+})" 2>/dev/null)
+
+if [ -z "$NODE_TYPE" ]; then
+  echo "WARN: 노드 type 식별 실패 (응답 형식 또는 권한). type 검증 SKIP." >&2
+elif [ "${ALLOW_FRAME:-0}" != "1" ]; then
+  case "$NODE_TYPE" in
+    FRAME|GROUP|SECTION|CANVAS)
+      echo "ERROR: nodeId ${NODE_ID} type=${NODE_TYPE} — frame composite export 위험" >&2
+      echo "       FRAME/GROUP/SECTION 을 image asset 으로 export 하면 자식 textbox/button 도" >&2
+      echo "       같이 raster 화되어 이중 렌더 사고 발생 (main-hero-defect)." >&2
+      echo "" >&2
+      echo "  해결책 1: leaf image node 식별" >&2
+      echo "    Figma 에서 ${NODE_ID} 를 클릭한 후 자식 트리를 펼쳐서" >&2
+      echo "    실제 image fill 을 가진 RECTANGLE/VECTOR 의 nodeId 사용" >&2
+      echo "    (예: ${NODE_ID} 의 photo 자식 노드)" >&2
+      echo "" >&2
+      echo "  해결책 2: ALLOW_FRAME=1 (의도된 frame composite — 회고 F7 케이스)" >&2
+      echo "    ALLOW_FRAME=1 bash $0 \"\$@\"" >&2
+      exit 2 ;;
+  esac
+fi
+
 # ---------- Step 1: Figma API 호출 — S3 URL 받기 ----------
 IMAGES_URL="https://api.figma.com/v1/images/${FILE_KEY}?ids=${NODE_ID}&format=${FORMAT}&scale=${SCALE}"
 
-echo "[figma-rest-image] fetch S3 URL: ${NODE_ID} scale=${SCALE} format=${FORMAT}"
+echo "[figma-rest-image] fetch S3 URL: ${NODE_ID} scale=${SCALE} format=${FORMAT}${NODE_TYPE:+ type=${NODE_TYPE}}"
 
 API_JSON=$(curl -sS -H "X-Figma-Token: ${FIGMA_TOKEN}" "$IMAGES_URL")
 # 에러 포착 규칙:
