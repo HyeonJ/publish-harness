@@ -47,3 +47,59 @@ export function write(path, obj) {
   writeFileSync(tmp, JSON.stringify(obj, null, 2) + '\n', 'utf8');
   renameSync(tmp, path);
 }
+
+export function addPage(obj, { name, nodeId, nodeIdTablet = null, nodeIdMobile = null }) {
+  if (obj.pages.find((p) => p.name === name)) {
+    throw new Error(`duplicate page: ${name}`);
+  }
+  obj.pages.push({ name, nodeId, nodeIdTablet, nodeIdMobile, status: 'pending', sections: [] });
+}
+
+export function addSection(obj, { name, page, kind }) {
+  if (obj.sections.find((s) => s.name === name)) {
+    throw new Error(`duplicate section: ${name}`);
+  }
+  obj.sections.push({
+    name, page: page || null, kind,
+    status: 'pending', retryCount: 0,
+    lastGateResult: null, failureHistory: [],
+  });
+  if (page) {
+    const p = obj.pages.find((x) => x.name === page);
+    if (!p) throw new Error(`page not found: ${page}`);
+    if (!p.sections.includes(name)) p.sections.push(name);
+  }
+}
+
+export function setSectionStatus(obj, name, status) {
+  const s = obj.sections.find((x) => x.name === name);
+  if (!s) throw new Error(`section not found: ${name}`);
+  if (!['pending', 'in_progress', 'done', 'blocked', 'skipped'].includes(status)) {
+    throw new Error(`invalid status: ${status}`);
+  }
+  s.status = status;
+}
+
+export function recordGateResult(obj, name, result) {
+  const s = obj.sections.find((x) => x.name === name);
+  if (!s) throw new Error(`section not found: ${name}`);
+  s.lastGateResult = {
+    passed: !!result.passed,
+    gates: result.gates || {},
+    timestamp: new Date().toISOString(),
+  };
+  if (result.passed) {
+    s.status = 'done';
+    delete s.needsHuman;
+  } else {
+    const categories = [...new Set((result.failures || []).map((f) => f.category))];
+    s.failureHistory.push({ attempt: s.retryCount, categories, count: (result.failures || []).length });
+    s.retryCount += 1;
+    if (s.retryCount >= 3) {
+      s.status = 'blocked';
+      s.needsHuman = true;
+    } else {
+      s.status = 'in_progress';
+    }
+  }
+}

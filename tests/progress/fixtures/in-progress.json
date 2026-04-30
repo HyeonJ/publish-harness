@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "project": { "name": "demo", "mode": "figma", "template": "vite-react-ts", "source": {}, "canvas": {} },
+  "phase": { "current": 3, "completed": [1, 2] },
+  "pages": [{ "name": "home", "nodeId": "1:1", "nodeIdTablet": null, "nodeIdMobile": null, "status": "in_progress", "sections": ["home-hero"] }],
+  "sections": [
+    { "name": "home-hero", "page": "home", "kind": "section", "status": "in_progress", "retryCount": 0, "lastGateResult": null, "failureHistory": [] }
+  ],
+  "updatedAt": "2026-04-30T00:00:00Z"
+}
