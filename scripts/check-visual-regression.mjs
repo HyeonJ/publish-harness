@@ -17,7 +17,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { readManifest, applyMatchingRule, ROLES } from "./_lib/anchor-manifest.mjs";
 import { readLegacy, validateLegacy } from "./_lib/legacy-manifest.mjs";
-import { newStableContext, stabilizePage } from "./_lib/playwright-stable.mjs";
+import { newStableContext, stabilizePage, attachConsoleErrorCollector, assertEnvironmentClean } from "./_lib/playwright-stable.mjs";
 
 // ---------- 인자 ----------
 const argv = process.argv.slice(2);
@@ -104,10 +104,25 @@ async function runLite() {
     process.exit(0);
   }
   let currentBuf;
+  let envCheckError = null;
   try {
     const ctx = await newStableContext(browser, opts.viewport);
     const page = await ctx.newPage();
+    const collector = attachConsoleErrorCollector(page);
     await stabilizePage(page, { url, timeout: opts.timeout });
+    // 환경 무결성 sanity check (B2):
+    // baseline 박을 때 (--update-baseline) 또는 lite 비교 시 dev 서버 fallback 폰트 / console error
+    // 가 있으면 잘못된 baseline 캡처 → strict gate 영원히 PASS. 캡처 직전 차단.
+    try {
+      await assertEnvironmentClean({
+        page,
+        errors: collector.errors,
+        section: opts.section,
+        viewport: opts.viewport,
+      });
+    } catch (envErr) {
+      envCheckError = envErr;
+    }
     currentBuf = await page.screenshot({ fullPage: true });
   } catch (e) {
     await browser.close().catch(() => {});
@@ -115,6 +130,17 @@ async function runLite() {
     process.exit(0);
   }
   await browser.close();
+  // 환경 sanity 실패면 baseline 박는 것도 비교도 모두 abort (FAIL)
+  if (envCheckError) {
+    console.log(JSON.stringify({
+      section: opts.section,
+      viewport: opts.viewport,
+      status: "FAIL",
+      reason: "environment sanity check failed",
+      detail: envCheckError.message,
+    }));
+    process.exit(1);
+  }
   if (opts["update-baseline"]) {
     mkdirSync(dirname(baselinePath), { recursive: true });
     writeFileSync(baselinePath, currentBuf);
@@ -242,11 +268,20 @@ async function evaluateViewport(browser, plan, url) {
   const { v: viewport, png, am, l2skip } = plan;
   const ctx = await newStableContext(browser, viewport);
   const page = await ctx.newPage();
+  const collector = attachConsoleErrorCollector(page);
   try {
     try {
       await stabilizePage(page, { url, timeout: opts.timeout });
     } catch (e) {
       return { viewport, status: "FAIL", reason: `Playwright 렌더 실패 (${e.message.split("\n")[0]})` };
+    }
+
+    // 환경 무결성 sanity check (B2): 잘못된 환경에서 코드 캡처되면 baseline 과
+    // 같은 fallback 상태라 일관 PASS — strict 무력화. 캡처 직전 차단.
+    try {
+      await assertEnvironmentClean({ page, errors: collector.errors, section: opts.section, viewport });
+    } catch (envErr) {
+      return { viewport, status: "FAIL", reason: "environment sanity check failed", detail: envErr.message };
     }
 
     // L2 측정 (anchor bbox)
