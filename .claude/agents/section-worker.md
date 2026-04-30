@@ -88,10 +88,21 @@ model: sonnet
   - `figma_node_id_mobile` 있으면:
     `scripts/figma-rest-image.sh <fileKey> <mobileNodeId> figma-screenshots/{page}-{section}-mobile.png --scale 2`
   - 확보한 baseline PNG 는 **Read 도구로 직접 열어 시각 확인** 후 구현에 반영
-- `get_design_context` 1회 호출 (Figma MCP) — 토큰 12K 이하 확인
-  - 쿼터 부족 또는 **MCP 미등록 상태**(도구 목록에 `mcp__*figma*__get_design_context` 없음) → 즉시 REST로 폴백:
-    `curl GET https://api.figma.com/v1/files/{fileKey}/nodes?ids=<nodeId>&depth=3`
-  - REST 응답의 `document.children[].children[]` 구조에서 layout/fill/style 추출
+- **`get_design_context` 호출 default 금지** (B-4, beverage-product §M7):
+  sonnet 컨텍스트 윈도우와 figma 응답 사이즈 충돌로 워커 incomplete crash 가
+  연속 발현 (section-1-nav 27분 손실). default 우회 — 다른 진실의 원천 사용:
+  1. **좌표** — `get_metadata` 또는 anchor manifest (`baselines/<section>/anchors-<viewport>.json`)
+     · figma 절대좌표는 manifest 의 bbox 에 박혀있고 normalize 는 G1 자동 처리 (B-1b)
+     · figmaPageWidth 메타 필드도 manifest 에 포함
+  2. **텍스트** — `docs/text-content.md` (B-6 의 extract-text-content.mjs 산출)
+     · placeholder ("BOLD TITLE...") 가 아닌 figma 실제 `characters` 필드
+     · fontFamily / fontSize / fontWeight 메타도 같이 포함
+  3. **layout 구조** — anchor manifest 의 figmaPageWidth + bbox + role +
+     (B-7 박힌 후) `docs/page-structure.md` 의 layoutTopology
+  4. **토큰** — `docs/token-audit.md` + `src/styles/tokens.css`
+  - 정말 필요한 경우 (leaf image fill 식별 등) — Opus 승격 후만 + 응답 사이즈
+    `curl HEAD` 사전 측정. 또는 REST `?depth=2` 로 얕게:
+    `curl GET https://api.figma.com/v1/files/{fileKey}/nodes?ids=<nodeId>&depth=2`
 
 #### spec 모드
 
