@@ -55,6 +55,19 @@ const required = ["mode", "section", "viewports"];
 for (const r of required) {
   if (!opts[r]) { console.error(`ERROR: --${r} required`); process.exit(2); }
 }
+
+// B-1a: --force 도 환경변수 게이트. workers 가 임의로 baseline 갱신 차단.
+// figma 디자인 변경 시 사람이 검토 후 UPDATE_BASELINE_ALLOWED=1 명시 승인.
+// 첫 생성 (cache miss) 은 가드 안 함 — --force 만.
+if (opts.force && process.env.UPDATE_BASELINE_ALLOWED !== "1") {
+  console.error(
+    "ERROR: --force requires UPDATE_BASELINE_ALLOWED=1 env (B-1a)\n" +
+    "  baseline 갱신은 figma 디자인 변경 시 사람 명시 승인 후만 허용.\n" +
+    "  cache miss (첫 생성) 는 --force 없이 자동 진행."
+  );
+  process.exit(2);
+}
+
 const viewports = opts.viewports.split(",").map((v) => v.trim());
 const baselineDir = resolve(`baselines/${opts.section}`);
 mkdirSync(baselineDir, { recursive: true });

@@ -88,6 +88,23 @@ if (!opts.section) { console.error("usage: --section <id>"); process.exit(2); }
 // 모드 분기: --strict 있고 --baseline-dir 있으면 strict, 아니면 lite (기존 동작)
 const STRICT = opts.strict && opts["baseline-dir"];
 
+// B-1a — --update-baseline 환경변수 게이트 (Playwright launch 전 차단).
+// 분석 원칙 #1: figma 가 유일한 진실의 원천. 워커 self-capture 봉쇄.
+if (opts["update-baseline"] && process.env.UPDATE_BASELINE_ALLOWED !== "1") {
+  console.log(JSON.stringify({
+    section: opts.section,
+    viewport: opts.viewport,
+    status: "FAIL",
+    reason: "BASELINE_UPDATE_FORBIDDEN — figma 가 유일한 진실의 원천",
+    detail: "--update-baseline 은 워커가 직접 호출 불가. 정당한 갱신 경로:\n" +
+      "  1. UPDATE_BASELINE_ALLOWED=1 prepare-baseline.mjs --force --section <id> (figma 기준)\n" +
+      "  2. 사람이 figma 디자인 변경 검토 후 명시 승인\n" +
+      "회피 동기 제거: dimension mismatch 는 게이트가 자동 normalize (B-1b).",
+    strictEffective: false,
+  }));
+  process.exit(1);
+}
+
 // ---------- 옵셔널 의존성 (lite 호환) ----------
 let chromium, pixelmatch, PNG;
 try {
@@ -165,9 +182,10 @@ async function runLite() {
     process.exit(1);
   }
   if (opts["update-baseline"]) {
+    // B-1a 가드는 이미 args parse 직후에서 차단됨. 여기 도달했으면 UPDATE_BASELINE_ALLOWED=1.
     mkdirSync(dirname(baselinePath), { recursive: true });
     writeFileSync(baselinePath, currentBuf);
-    console.log(JSON.stringify({ section: opts.section, viewport: opts.viewport, status: "BASELINE_UPDATED", baseline: baselinePath }));
+    console.log(JSON.stringify({ section: opts.section, viewport: opts.viewport, status: "BASELINE_UPDATED", baseline: baselinePath, allowedBy: "UPDATE_BASELINE_ALLOWED" }));
     process.exit(0);
   }
   const cur = PNG.sync.read(currentBuf);
