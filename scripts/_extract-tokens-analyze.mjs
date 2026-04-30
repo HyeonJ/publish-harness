@@ -58,6 +58,7 @@ const colorTally = new Map();
 const fontTally = new Map(); // "family|weight" -> { count, sample }
 const spacingTally = new Map(); // number -> count
 const radiusTally = new Map(); // number -> count
+const containerWidthTally = new Map(); // figma desktop frame width → count (B minimum)
 
 function rgbaToHex({ r, g, b, a = 1 }) {
   const ch = (v) => Math.round(v * 255).toString(16).padStart(2, "0");
@@ -184,6 +185,16 @@ function walk(node, ancestry = []) {
     }
   }
 
+  // container max width — desktop frame 의 폭 (B minimum, beverage-product M6 차단)
+  // figma 가 1440 / 1920 / 1280 어느 폭이든 추출해서 --container-max 토큰으로
+  // 주입. 1024+ 이상의 FRAME 만 후보 (mobile/tablet/component frame 제외).
+  if (node.type === "FRAME" && node.absoluteBoundingBox) {
+    const w = node.absoluteBoundingBox.width;
+    if (typeof w === "number" && w >= 1024) {
+      containerWidthTally.set(w, (containerWidthTally.get(w) ?? 0) + 1);
+    }
+  }
+
   const children = node.children;
   if (Array.isArray(children)) {
     const nextAncestry = myName ? [...ancestry, myName] : ancestry;
@@ -305,10 +316,30 @@ function topRadius() {
 }
 const radiusTokens = topRadius();
 
+// container-max: 가장 흔한 desktop frame 폭 (1024+).
+// figma 디자인이 1440/1920/1280 어느 쪽이든 자동 추출. App.tsx 의 main wrapper
+// 가 var(--container-max) 사용 → 1920 모니터에서 1440 figma 디자인이 좌우 여백
+// 갖고 보존. 빈도 가장 높은 폭 선택 (페이지가 여러 frame 폭 섞인 경우 대비).
+function pickContainerMax() {
+  if (containerWidthTally.size === 0) return null; // 추출 실패 — App.tsx 가 default 사용
+  // 빈도 순, 동률이면 더 큰 폭 우선 (디자이너가 의도한 max 가 desktop)
+  const sorted = [...containerWidthTally.entries()].sort((a, b) => {
+    if (b[1] !== a[1]) return b[1] - a[1];
+    return b[0] - a[0];
+  });
+  return Math.round(sorted[0][0]);
+}
+const containerMax = pickContainerMax();
+
 // ---------- CSS 생성 ----------
 
 function buildTokensCss() {
   let out = `/* tokens.css — Figma에서 자동 추출 (mode: ${MODE}). bootstrap.sh / extract-tokens.sh 재실행 시 덮어써집니다. */\n\n:root {\n`;
+  // B minimum: container max width — 1920 모니터에서 1440 figma 디자인 보존
+  if (containerMax) {
+    out += "  /* Container — desktop frame 폭 (figma 자동 추출). App.tsx 의 main wrapper 가 사용. */\n";
+    out += `  --container-max: ${containerMax}px;\n\n`;
+  }
   out += "  /* Colors (빈도순) */\n";
   for (const t of colorTokens) {
     out += `  --${t.name}: ${t.hex.toLowerCase()};\n`;
@@ -375,6 +406,11 @@ function buildAuditMd() {
   lines.push(`- 폰트 family: ${fontFamilies.length}`);
   lines.push(`- spacing 값: ${spacingTokens.length}`);
   lines.push(`- radius 값: ${radiusTokens.length}`);
+  if (containerMax) {
+    lines.push(`- container max width: ${containerMax}px (desktop frame 폭 자동 추출)`);
+  } else {
+    lines.push(`- container max width: 추출 실패 (1024+ FRAME 미발견) — App.tsx 의 default 사용`);
+  }
   lines.push("");
 
   lines.push(`## 색상 (빈도순)`);
@@ -424,4 +460,4 @@ writeFileSync("src/styles/tokens.css", buildTokensCss());
 writeFileSync("src/styles/fonts.css", buildFontsCss());
 writeFileSync("docs/token-audit.md", buildAuditMd());
 
-console.log(`[extract-tokens] mode=${MODE} colors=${colorTokens.length} fonts=${fontFamilies.length} spacing=${spacingTokens.length} radius=${radiusTokens.length}`);
+console.log(`[extract-tokens] mode=${MODE} colors=${colorTokens.length} fonts=${fontFamilies.length} spacing=${spacingTokens.length} radius=${radiusTokens.length} container=${containerMax || "(none)"}`);
