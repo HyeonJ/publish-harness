@@ -4,12 +4,16 @@
 # 설치는 하지 않는다. 상태만 확인하고 미비한 항목에 대해 해결 명령어 안내.
 #
 # Usage:
-#   bash scripts/doctor.sh [--strict] [--skip-project] [--skip-figma]
+#   bash scripts/doctor.sh [--strict] [--skip-project] [--skip-figma] [--json]
 #
 # 옵션:
 #   --strict         선택 항목(lhci/gh 등)이 없어도 exit 1
 #   --skip-project   §5 프로젝트 구조 체크 스킵 (bootstrap.sh 에서 빈 디렉토리 실행 시 사용)
 #   --skip-figma     §2 Figma MCP / §3 Figma 인증 체크 스킵 (spec 모드 bootstrap 용)
+#   --json           JSON 출력 모드 (CI 통합용, 사람용 ANSI 텍스트 억제)
+#                    출력: { "summary": { "fail": N, "warn": N }, "results": [ ... ] }
+#                    각 result: { "key": "...", "status": "ok|bad|warn", "value": "..." }
+#                    hint() 메시지는 results 에 포함되지 않음 (사람용 가이드)
 #
 # 종료 코드:
 #   0 모든 필수 OK
@@ -20,11 +24,13 @@ set -u
 STRICT=0
 SKIP_PROJECT=0
 SKIP_FIGMA=0
+JSON_MODE=0
 for arg in "$@"; do
   case "$arg" in
     --strict) STRICT=1 ;;
     --skip-project) SKIP_PROJECT=1 ;;
     --skip-figma) SKIP_FIGMA=1 ;;
+    --json) JSON_MODE=1 ;;
   esac
 done
 
@@ -34,14 +40,47 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 FAIL=0
 WARN=0
 
-ok()    { printf "  \033[32m[✓]\033[0m %-22s %s\n" "$1" "$2"; }
-bad()   { printf "  \033[31m[✗]\033[0m %-22s %s\n" "$1" "$2"; FAIL=$((FAIL+1)); }
-warn()  { printf "  \033[33m[⚠]\033[0m %-22s %s\n" "$1" "$2"; WARN=$((WARN+1)); }
-hint()  { printf "      \033[2m→ %s\033[0m\n" "$1"; }
+JSON_RESULTS_FILE=$(mktemp)
+trap 'rm -f "$JSON_RESULTS_FILE"' EXIT
 
-section() { printf "\n\033[1m%s\033[0m\n" "$1"; }
+# JSON value escape: backslash, double-quote, control chars (newline, tab, CR)
+_json_escape() {
+  printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e ':a;N;$!ba;s/\n/\\n/g' -e 's/\r/\\r/g' -e 's/\t/\\t/g'
+}
 
-echo "=== publish-harness doctor ==="
+_record_json() {
+  # $1=key, $2=status (ok|bad|warn), $3=value
+  local key_esc value_esc
+  key_esc=$(_json_escape "$1")
+  value_esc=$(_json_escape "$3")
+  printf '{"key":"%s","status":"%s","value":"%s"}\n' "$key_esc" "$2" "$value_esc" >> "$JSON_RESULTS_FILE"
+}
+
+ok()    {
+  [ "$JSON_MODE" -eq 1 ] && { _record_json "$1" "ok" "$2"; return; }
+  printf "  \033[32m[✓]\033[0m %-22s %s\n" "$1" "$2"
+}
+bad()   {
+  FAIL=$((FAIL+1))
+  [ "$JSON_MODE" -eq 1 ] && { _record_json "$1" "bad" "$2"; return; }
+  printf "  \033[31m[✗]\033[0m %-22s %s\n" "$1" "$2"
+}
+warn()  {
+  WARN=$((WARN+1))
+  [ "$JSON_MODE" -eq 1 ] && { _record_json "$1" "warn" "$2"; return; }
+  printf "  \033[33m[⚠]\033[0m %-22s %s\n" "$1" "$2"
+}
+hint()  {
+  [ "$JSON_MODE" -eq 1 ] && return
+  printf "      \033[2m→ %s\033[0m\n" "$1"
+}
+
+section() {
+  [ "$JSON_MODE" -eq 1 ] && return
+  printf "\n\033[1m%s\033[0m\n" "$1"
+}
+
+[ "$JSON_MODE" -eq 0 ] && echo "=== publish-harness doctor ==="
 
 # ========== 필수 시스템 ==========
 section "1/5 시스템 도구"
@@ -113,7 +152,7 @@ fi
 section "3/5 Figma 인증"
 
 if [ "$SKIP_FIGMA" -eq 1 ]; then
-  printf "  \033[2m(--skip-figma: spec 모드 → Figma 인증 체크 생략)\033[0m\n"
+  [ "$JSON_MODE" -eq 0 ] && printf "  \033[2m(--skip-figma: spec 모드 → Figma 인증 체크 생략)\033[0m\n"
 elif [ -n "${FIGMA_TOKEN:-}" ]; then
   prefix="${FIGMA_TOKEN:0:6}"
   ok "FIGMA_TOKEN" "${prefix}..."
@@ -180,10 +219,28 @@ if [ "$SKIP_PROJECT" -eq 0 ]; then
   fi
 else
   section "5/5 프로젝트 구조"
-  printf "  \033[2m(--skip-project: bootstrap 초입 실행 → 프로젝트 체크 생략)\033[0m\n"
+  [ "$JSON_MODE" -eq 0 ] && printf "  \033[2m(--skip-project: bootstrap 초입 실행 → 프로젝트 체크 생략)\033[0m\n"
 fi
 
 # ========== 결과 ==========
+if [ "$JSON_MODE" -eq 1 ]; then
+  echo "{"
+  printf '  "summary": { "fail": %d, "warn": %d },\n' "$FAIL" "$WARN"
+  echo '  "results": ['
+  if [ -s "$JSON_RESULTS_FILE" ]; then
+    paste -sd ',' "$JSON_RESULTS_FILE"
+  fi
+  echo '  ]'
+  echo "}"
+  if [ "$FAIL" -gt 0 ]; then
+    exit 1
+  fi
+  if [ "$WARN" -gt 0 ] && [ "$STRICT" -eq 1 ]; then
+    exit 1
+  fi
+  exit 0
+fi
+
 printf "\n\033[1m결과\033[0m\n"
 if [ "$FAIL" -gt 0 ]; then
   printf "  \033[31m✗ 필수 항목 ${FAIL}개 미비\033[0m, 경고 ${WARN}개\n"
