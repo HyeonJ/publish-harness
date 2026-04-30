@@ -103,3 +103,82 @@ export function recordGateResult(obj, name, result) {
     }
   }
 }
+
+// ---- measure-quality.sh JSON 어댑터 -----------------------------------------
+// measure-quality.sh 가 작성하는 tests/quality/<section>.json 의 형식은
+//   { section, dir, viewport, G1_status, G4_token_usage, ..., G11_layout_escapes }
+// 으로 recordGateResult 가 기대하는 { passed, gates, failures } 와 다르다.
+// 이 어댑터는 G* 필드를 읽어 표준 형식으로 변환한 뒤 recordGateResult 에 넘긴다.
+
+const GATE_FIELD_TO_KEY = {
+  G1_status: 'G1',
+  G4_token_usage: 'G4',
+  G5_semantic_html: 'G5',
+  G6_text_image_ratio: 'G6',
+  G7_lighthouse: 'G7',
+  G8_i18n: 'G8',
+  G10_write_protection: 'G10',
+  G11_layout_escapes: 'G11',
+};
+
+const GATE_TO_CATEGORY = {
+  G1: 'VISUAL_REGRESSION',
+  G4: 'TOKEN_DRIFT',
+  G5: 'A11Y',
+  G6: 'TEXT_RATIO',
+  G7: 'LIGHTHOUSE',
+  G8: 'I18N',
+  G10: 'WRITE_PROTECTION',
+  G11: 'LAYOUT_ESCAPE',
+};
+
+// measure-quality 출력 형식 감지: G1_status 등 G* 필드가 있고 passed 필드는 없음.
+export function isMeasureQualityResult(result) {
+  if (!result || typeof result !== 'object') return false;
+  if ('passed' in result) return false;
+  return Object.keys(GATE_FIELD_TO_KEY).some((k) => k in result);
+}
+
+// G* 상태 문자열을 PASS/FAIL/SKIP 으로 정규화.
+// "PASS (a11y=98, seo=92)" 같은 prefix 도 PASS 로 처리.
+// SCRIPT_ERROR / NO_BASELINE / BASELINE_UPDATED / SKIPPED 등은 SKIP 으로 묶음 (FAIL 아님).
+function normalizeGateStatus(raw) {
+  if (typeof raw !== 'string') return 'SKIP';
+  const s = raw.trim();
+  if (s.startsWith('PASS')) return 'PASS';
+  if (s.startsWith('FAIL')) return 'FAIL';
+  return 'SKIP';
+}
+
+// measure-quality 결과를 { passed, gates, failures } 로 변환.
+export function adaptMeasureQualityResult(mqResult) {
+  const gates = {};
+  const failures = [];
+  for (const [field, key] of Object.entries(GATE_FIELD_TO_KEY)) {
+    if (!(field in mqResult)) continue;
+    const raw = mqResult[field];
+    // G1 은 객체일 수도 있음 (G1_visual_regression). 여기선 G1_status 만 본다.
+    const status = normalizeGateStatus(typeof raw === 'string' ? raw : raw?.status);
+    gates[key] = status;
+    if (status === 'FAIL') {
+      failures.push({
+        category: GATE_TO_CATEGORY[key] || key,
+        gate: key,
+        message: typeof raw === 'string' ? raw : `${key} FAIL`,
+      });
+    }
+  }
+  return {
+    passed: failures.length === 0,
+    gates,
+    failures,
+  };
+}
+
+// CLI 진입점에서 두 형식을 자동 감지하여 호출하는 헬퍼.
+export function recordGateResultAuto(obj, name, result) {
+  if (isMeasureQualityResult(result)) {
+    return recordGateResult(obj, name, adaptMeasureQualityResult(result));
+  }
+  return recordGateResult(obj, name, result);
+}

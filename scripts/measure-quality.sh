@@ -351,6 +351,18 @@ cat > "$OUT" <<EOF
 }
 EOF
 
+# ---------- progress.json 자동 반영 (있을 때만) ----------
+# A.7: progress.json 이 cwd 에 있으면 게이트 결과를 자동 반영.
+# 어댑터가 G* 필드를 {passed, gates, failures} 로 변환해 recordGateResult 호출.
+# 실패해도 measure-quality 자체는 깨지지 않게 || echo 패턴 사용.
+if [ -f "progress.json" ]; then
+  node "${SCRIPT_DIR}/progress-update.mjs" record-gate-result \
+    --section "${section}" \
+    --result-file "${OUT}" 2>/dev/null \
+    || echo "[measure-quality] progress.json 업데이트 실패 (수동 record-gate-result 권장)"
+  node "${SCRIPT_DIR}/progress-render.mjs" 2>/dev/null || true
+fi
+
 echo ""
 echo "=================================="
 echo "결과 저장: $OUT"

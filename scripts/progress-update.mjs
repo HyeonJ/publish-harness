@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { createEmpty, read, write, addPage, addSection, setSectionStatus, recordGateResult } from './_lib/progress-store.mjs';
+import { createEmpty, read, write, addPage, addSection, setSectionStatus, recordGateResultAuto } from './_lib/progress-store.mjs';
 
 const PROGRESS_PATH = join(process.cwd(), 'progress.json');
 
@@ -62,7 +62,9 @@ switch (subcmd) {
     const obj = read(PROGRESS_PATH);
     if (!args['result-file']) die('--result-file required');
     const result = JSON.parse(readFileSync(args['result-file'], 'utf8'));
-    recordGateResult(obj, args.section, result);
+    // measure-quality.sh 출력 형식 ({G1_status, G4_token_usage, ...}) 과
+    // 표준 형식 ({passed, gates, failures}) 모두 지원.
+    recordGateResultAuto(obj, args.section, result);
     write(PROGRESS_PATH, obj);
     const s = obj.sections.find((x) => x.name === args.section);
     console.log(`recorded ${args.section}: status=${s.status} retryCount=${s.retryCount}`);

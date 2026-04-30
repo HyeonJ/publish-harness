@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createEmpty, read, write, validate } from '../../scripts/_lib/progress-store.mjs';
 import { addPage, addSection, setSectionStatus, recordGateResult } from '../../scripts/_lib/progress-store.mjs';
+import { isMeasureQualityResult, adaptMeasureQualityResult, recordGateResultAuto } from '../../scripts/_lib/progress-store.mjs';
 
 test('createEmpty returns valid v1 skeleton', () => {
   const obj = createEmpty({ name: 'foo', mode: 'figma', template: 'vite-react-ts' });
@@ -97,4 +98,70 @@ test('recordGateResult on PASS sets status=done and clears needsHuman', () => {
   recordGateResult(obj, 'Button', { passed: true, gates: { G4: 'PASS' }, failures: [] });
   assert.equal(obj.sections[0].status, 'done');
   assert.equal(obj.sections[0].needsHuman, undefined);
+});
+
+// ---- A.7 measure-quality 어댑터 테스트 -----------------------------------
+
+test('isMeasureQualityResult detects measure-quality JSON shape', () => {
+  assert.equal(isMeasureQualityResult({ G1_status: 'PASS', G4_token_usage: 'PASS' }), true);
+  assert.equal(isMeasureQualityResult({ passed: true, gates: {}, failures: [] }), false);
+  assert.equal(isMeasureQualityResult(null), false);
+  assert.equal(isMeasureQualityResult('string'), false);
+});
+
+test('adaptMeasureQualityResult: all PASS → passed=true, no failures', () => {
+  const adapted = adaptMeasureQualityResult({
+    G1_status: 'PASS',
+    G4_token_usage: 'PASS',
+    G5_semantic_html: 'PASS',
+    G6_text_image_ratio: 'PASS',
+    G7_lighthouse: 'PASS (a11y=98, seo=92)',
+    G8_i18n: 'PASS',
+    G10_write_protection: 'PASS',
+    G11_layout_escapes: 'PASS',
+  });
+  assert.equal(adapted.passed, true);
+  assert.deepEqual(adapted.failures, []);
+  assert.equal(adapted.gates.G7, 'PASS'); // "PASS (..)" prefix stripped
+});
+
+test('adaptMeasureQualityResult: FAIL gates produce categorized failures', () => {
+  const adapted = adaptMeasureQualityResult({
+    G1_status: 'SKIP',
+    G4_token_usage: 'FAIL',
+    G5_semantic_html: 'PASS',
+    G6_text_image_ratio: 'FAIL',
+    G11_layout_escapes: 'SCRIPT_ERROR', // SCRIPT_ERROR → SKIP (not FAIL)
+  });
+  assert.equal(adapted.passed, false);
+  assert.equal(adapted.failures.length, 2);
+  const cats = adapted.failures.map((f) => f.category).sort();
+  assert.deepEqual(cats, ['TEXT_RATIO', 'TOKEN_DRIFT']);
+  assert.equal(adapted.gates.G11, 'SKIP');
+});
+
+test('recordGateResultAuto routes measure-quality format to adapter', () => {
+  const obj = createEmpty({ name: 'x', mode: 'spec', template: 'vite-react-ts' });
+  addSection(obj, { name: 'MqSection', page: null, kind: 'component' });
+  recordGateResultAuto(obj, 'MqSection', {
+    section: 'MqSection',
+    G1_status: 'SKIP',
+    G4_token_usage: 'FAIL',
+    G5_semantic_html: 'PASS',
+  });
+  const s = obj.sections[0];
+  assert.equal(s.retryCount, 1);
+  assert.equal(s.status, 'in_progress');
+  assert.deepEqual(s.failureHistory[0].categories, ['TOKEN_DRIFT']);
+});
+
+test('recordGateResultAuto preserves standard format passthrough', () => {
+  const obj = createEmpty({ name: 'x', mode: 'spec', template: 'vite-react-ts' });
+  addSection(obj, { name: 'Button', page: null, kind: 'component' });
+  recordGateResultAuto(obj, 'Button', {
+    passed: true,
+    gates: { G4: 'PASS' },
+    failures: [],
+  });
+  assert.equal(obj.sections[0].status, 'done');
 });
