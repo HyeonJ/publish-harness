@@ -34,10 +34,41 @@ const PATTERNS = {
 const TOKEN_VALUES_ALLOWED = new Set([0, 1, 2, 4, 8, 16, 24, 32, 48, 64, 96, 128, 256]); // 토큰 가능성 있는 단위
 
 /**
+ * 주석 영역을 공백으로 치환 (라인 카운트 보존).
+ * - 블록 주석 `/* ... *\/` (멀티라인 OK), JSX `{/* ... *\/}`
+ * - 라인 주석 `//` (단 문자열 안 // 는 보존 — backtick/quote 짝수 카운트 휴리스틱)
+ *
+ * N5 (modern-retro-strict §F8) — G11 이 코드 주석의 "absolute" 키워드를 false-positive
+ * 차단하던 회귀 차단. AST 파싱 대신 정규식으로 단순 처리, 라인 번호는 그대로 보존.
+ */
+function stripComments(src) {
+  // 1. 블록 주석 `/* ... */` — 내용을 newline 만 보존하면서 공백 치환
+  let result = src.replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " "));
+  // 2. 라인 주석 `//` 부터 라인 끝까지. 단 문자열 안 // 는 보존
+  result = result.split("\n").map((line) => {
+    let inStr = null;
+    for (let i = 0; i < line.length; i++) {
+      const c = line[i];
+      if (inStr) {
+        if (c === inStr && line[i - 1] !== "\\") inStr = null;
+      } else if (c === '"' || c === "'" || c === "`") {
+        inStr = c;
+      } else if (c === "/" && line[i + 1] === "/") {
+        return line.slice(0, i) + " ".repeat(line.length - i);
+      }
+    }
+    return line;
+  }).join("\n");
+  return result;
+}
+
+/**
  * 파일에서 escape 카운트 추출 (정적 축).
  */
 export function detectEscapesInFile(filePath) {
-  const src = readFileSync(filePath, "utf8");
+  const rawSrc = readFileSync(filePath, "utf8");
+  // N5 — 주석 strip 으로 false-positive 제거
+  const src = stripComments(rawSrc);
   const result = {
     file: filePath,
     positioning: [],
