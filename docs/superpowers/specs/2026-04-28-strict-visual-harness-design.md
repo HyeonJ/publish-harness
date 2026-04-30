@@ -1,12 +1,19 @@
 # Strict Visual Harness — 설계
 
 **작성일**: 2026-04-28
-**상태**: Draft v5 (modern-retro-strict 1차 dogfooding 회고 반영)
+**상태**: Draft v6 (main-hero-defect 사례 — asset 추출 단계 sanity check)
 **브랜치**: `feat/strict-visual-harness`
 **트리거**: 사용자 요청 — "diff <5%" 차단 게이트 복원. 단, 옛날 heavy 가 폐기된 이유(absolute 회귀 + 운영 비용)를 동시에 해결.
 
 ## 변경 이력
 
+- **v5 → v6 (2026-04-30, main-hero-defect 사례 반영)**:
+  - 새 사각지대 M5 (회고 §M3/M4 와 다른 메커니즘): **asset nodeId 오인 → composite 캡처 → coherence baseline 박힘**
+  - 사고: home-cta 워커가 frame nodeId 를 photo asset 으로 export → textbox+button 까지 raster 됨 → 코드에 `<img>` + 별도 마크업 = **이중 렌더**. 모든 게이트 PASS (strict 무력화).
+  - fix 위치: workflow 의 **asset 추출 단계 sanity check** (coherence 게이트로 본질적 검출 X — §1.1 갭의 또 다른 변종)
+  - **(A) `figma-rest-image.sh` Step 0 노드 type 검증** (commit aa28125): FRAME/GROUP/SECTION 차단, ALLOW_FRAME=1 escape hatch
+  - **(B) `section-worker.md` 에셋 추출 룰 강화** (commit aa28125): leaf image node 정의 + 사람 눈 검증 1단계
+  - 별도 게이트 신설 X — 추출 단계 정적 검증으로 충분. 신규 게이트 (asset OCR 등) 는 false-positive 위험 큼
 - **v4 → v5 (2026-04-30, modern-retro-strict 1차 dogfooding 회고 반영)**:
   - **명칭 vs 보장 갭 명시 (§명세 보강)**: "G1 strict 는 **coherence 게이트**지 **design fidelity 게이트가 아님**" — 회고 §3.1 직격
   - 회고 §2.2 M1+M2 메커니즘 ("잘못된 환경 baseline → strict 영원히 PASS") 차단:
@@ -858,11 +865,13 @@ codex 2차 리뷰 + 검증 인터뷰 중 plan 단계로 미룬 항목:
 | N8 | `figma-rest-image.sh` 의 `imageRef` UUID 다운로드 모드 (F7) | 낮음 |
 | **G13** | DS variant 매트릭스 — Phase 2 산출로 사용처별 variant 표 + 워커 prompt 강제 (M4) | **높음 — M4 인라인 재구현 직격, but 게이트화 X 워커 가이드로 처리 가능** |
 
-**여전히 미해결 사각지대** (회고 §2.2 M3/M4):
+**여전히 미해결 사각지대** (회고 §2.2 M3/M4 + main-hero-defect M5):
 - **M3 (`#613B0F` → `#000000` 미스매핑)**: extract-tokens 가 빈도 기반이라 named color 누락. N3 박혀야 차단.
 - **M4 (home-cta 인라인 재구현)**: IMPORT_MISSING 게이트는 "import 안 씀" 만 차단. variant 부족으로 인라인 재구현 미검출. G13 박혀야 차단.
+- **M5 (asset nodeId 오인 → composite baseline)**: home-cta 워커가 frame nodeId 를 photo asset 으로 export → textbox+button 까지 raster 됨 → 이중 렌더. **v6 에서 박힘** (commit aa28125 — figma-rest-image 의 type 검증 + section-worker 가이드 강화). 단 정적 검증 우회 케이스 (예: ALLOW_FRAME=1 남용) 는 인지 필요.
 
 → M3/M4 는 **coherence 게이트로는 본질적으로 못 잡음** (§1.1). design fidelity 영역. 별도 트랙으로 처리.
+→ M5 는 추출 단계 sanity check 로 차단 가능 (§1.1 갭의 또 다른 변종 — 게이트 영역과 다른 layer).
 
 ### v4 추가 — multi-viewport fallback 옵션 (use_figma 부족 시)
 
