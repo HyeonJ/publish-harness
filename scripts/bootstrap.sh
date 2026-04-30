@@ -282,11 +282,15 @@ fi
 if [ -f index.html ]; then
   sed -i.bak "s/{PROJECT_NAME}/${PROJECT_NAME}/g" index.html && rm -f index.html.bak
 fi
-# PROGRESS.md 템플릿 → PROGRESS.md
-if [ -f PROGRESS.md.tmpl ]; then
-  render_template PROGRESS.md.tmpl PROGRESS.md
-  rm -f PROGRESS.md.tmpl
-fi
+# progress.json + 자동 렌더된 PROGRESS.md
+node "${HARNESS_DIR}/scripts/progress-update.mjs" init \
+  --name "${PROJECT_NAME}" \
+  --mode "${MODE}" \
+  --template "${TEMPLATE}" \
+  ${FIGMA_URL:+--figma-url "${FIGMA_URL}"} \
+  ${FILE_KEY:+--file-key "${FILE_KEY}"}
+node "${HARNESS_DIR}/scripts/progress-render.mjs"
+rm -f PROGRESS.md.tmpl  # 잔재 제거 (구버전 호환)
 
 # ---------- 3. .claude/ 복사 ----------
 echo "[bootstrap] 3/9 .claude/ agents + skills 복사"
