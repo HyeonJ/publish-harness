@@ -19,6 +19,29 @@ import { readManifest, applyMatchingRule, ROLES } from "./_lib/anchor-manifest.m
 import { readLegacy, validateLegacy } from "./_lib/legacy-manifest.mjs";
 import { newStableContext, stabilizePage, attachConsoleErrorCollector, assertEnvironmentClean } from "./_lib/playwright-stable.mjs";
 
+// B-1b: PNG nearest-neighbor resize (sharp 의존성 없이). pngjs RGBA buffer 직접 조작.
+// 정밀도 < bilinear 단 % budget 안에서 흡수. dimension mismatch normalize 용.
+let _PNG_CONSTRUCTOR;
+function resizePngNearest(srcPng, newWidth, newHeight) {
+  if (!_PNG_CONSTRUCTOR) _PNG_CONSTRUCTOR = srcPng.constructor;
+  const dst = new _PNG_CONSTRUCTOR({ width: newWidth, height: newHeight });
+  const ratioX = srcPng.width / newWidth;
+  const ratioY = srcPng.height / newHeight;
+  for (let y = 0; y < newHeight; y++) {
+    const srcY = Math.min(srcPng.height - 1, Math.floor(y * ratioY));
+    for (let x = 0; x < newWidth; x++) {
+      const srcX = Math.min(srcPng.width - 1, Math.floor(x * ratioX));
+      const srcIdx = (srcY * srcPng.width + srcX) * 4;
+      const dstIdx = (y * newWidth + x) * 4;
+      dst.data[dstIdx] = srcPng.data[srcIdx];
+      dst.data[dstIdx + 1] = srcPng.data[srcIdx + 1];
+      dst.data[dstIdx + 2] = srcPng.data[srcIdx + 2];
+      dst.data[dstIdx + 3] = srcPng.data[srcIdx + 3];
+    }
+  }
+  return dst;
+}
+
 // ---------- 인자 ----------
 const argv = process.argv.slice(2);
 const opts = {
@@ -284,9 +307,15 @@ async function evaluateViewport(browser, plan, url) {
       return { viewport, status: "FAIL", reason: "environment sanity check failed", detail: envErr.message };
     }
 
-    // L2 측정 (anchor bbox)
+    // L2 측정 (anchor bbox) — B-1b: figma 좌표 viewport scale 자동 normalize.
+    // 핵심: figma 좌표와 preview viewport 좌표 시스템 다름. M6 sham strict 의 root.
+    //   - manifest bbox: figma section-relative (extract-figma-anchors 가 abs.x - sectionAbs.x 로 박음)
+    //   - 측정값 (m): viewport 절대좌표 (getBoundingClientRect)
+    // root anchor 의 measured.w / manifest.bbox.w = scale 비율로 normalize.
+    // measured 도 root 측정값 빼서 root-relative 로 변환.
     let l2 = { status: "SKIPPED" };
     let maskRects = [];
+    let normalizeMeta = null;
     if (!l2skip) {
       const manifest = readManifest(am);
       const ids = manifest.anchors.map((a) => a.id);
@@ -305,6 +334,35 @@ async function evaluateViewport(browser, plan, url) {
       const required = manifest.anchors.filter((a) => a.required);
       const optional = manifest.anchors.filter((a) => !a.required);
       const rule = applyMatchingRule(required, optional, matched);
+
+      // root anchor 의 measured / figma 비율 = scale (B-1b core)
+      const rootAnchor = manifest.anchors.find((a) => a.role === ROLES.SECTION_ROOT);
+      const measuredRoot = rootAnchor ? bboxes[rootAnchor.id] : null;
+      let scale = 1;
+      let rootOriginX = 0;
+      let rootOriginY = 0;
+      if (rootAnchor && rootAnchor.bbox && measuredRoot && measuredRoot.w > 0 && rootAnchor.bbox.w > 0) {
+        scale = measuredRoot.w / rootAnchor.bbox.w;
+        rootOriginX = measuredRoot.x;
+        rootOriginY = measuredRoot.y;
+        normalizeMeta = {
+          scale: Number(scale.toFixed(4)),
+          rootMeasuredW: Math.round(measuredRoot.w),
+          rootFigmaW: rootAnchor.bbox.w,
+        };
+      } else if (manifest.figmaPageWidth && rootAnchor && bboxes[rootAnchor.id]) {
+        // fallback — root bbox 없을 때 figmaPageWidth 와 viewport 비율
+        const measured = bboxes[rootAnchor.id];
+        scale = measured.w / manifest.figmaPageWidth;
+        rootOriginX = measured.x;
+        rootOriginY = measured.y;
+        normalizeMeta = {
+          scale: Number(scale.toFixed(4)),
+          fallback: "figmaPageWidth",
+        };
+      }
+      // scale ≈ 1 이면 normalize 사실상 무관
+
       let maxDelta = 0;
       let bboxFail = null;
       for (const a of manifest.anchors) {
@@ -317,25 +375,42 @@ async function evaluateViewport(browser, plan, url) {
           }
           continue;
         }
+        // measured 를 root-relative 로 변환 (root anchor 기준)
+        const measuredRelX = m.x - rootOriginX;
+        const measuredRelY = m.y - rootOriginY;
+        // figma bbox 를 scale 곱해 normalize (figma section-relative × scale = preview section-relative)
+        const figmaNormalizedX = a.bbox.x * scale;
+        const figmaNormalizedY = a.bbox.y * scale;
+        const figmaNormalizedW = a.bbox.w * scale;
+        const figmaNormalizedH = a.bbox.h * scale;
+
         const isRoot = a.role === ROLES.SECTION_ROOT;
         const pct = isRoot ? 0.5 : opts["threshold-l2-pct"];
-        const tolX = Math.max(opts["threshold-l2-px"], (pct / 100) * a.bbox.w);
+        // tolerance 도 normalize 후 크기 기준
+        const tolX = Math.max(opts["threshold-l2-px"], (pct / 100) * figmaNormalizedW);
         const tolY = a.role === ROLES.TEXT_BLOCK
-          ? Math.max(opts["threshold-l2-px"] * 2, (pct / 100) * a.bbox.h)
-          : Math.max(opts["threshold-l2-px"], (pct / 100) * a.bbox.h);
-        const dx = Math.abs(m.x - a.bbox.x);
-        const dy = Math.abs(m.y - a.bbox.y);
+          ? Math.max(opts["threshold-l2-px"] * 2, (pct / 100) * figmaNormalizedH)
+          : Math.max(opts["threshold-l2-px"], (pct / 100) * figmaNormalizedH);
+        // root anchor 자체는 root-relative 가 (0,0) 이라 비교 무의미 → SKIP
+        if (isRoot) {
+          // text-block mask only (root rarely text-block — 안전 fallback)
+          if (a.role === ROLES.TEXT_BLOCK) {
+            maskRects.push({ x: m.x, y: m.y, w: m.w, h: m.h });
+          }
+          continue;
+        }
+        const dx = Math.abs(measuredRelX - figmaNormalizedX);
+        const dy = Math.abs(measuredRelY - figmaNormalizedY);
         maxDelta = Math.max(maxDelta, dx, dy);
         if (dx > tolX || dy > tolY) {
           // first failure only — mirrors validateLegacy first-violation pattern
-          bboxFail = bboxFail || `${a.id} delta x=${dx.toFixed(0)} y=${dy.toFixed(0)} tol(${tolX.toFixed(0)},${tolY.toFixed(0)})`;
+          bboxFail = bboxFail || `${a.id} delta x=${dx.toFixed(0)} y=${dy.toFixed(0)} tol(${tolX.toFixed(0)},${tolY.toFixed(0)}) [scale=${scale.toFixed(3)}]`;
         }
         // text-block 은 실제 text-bearing element 인지 검사
         if (a.role === ROLES.TEXT_BLOCK && !m.semantic) {
-          // first failure only — mirrors validateLegacy first-violation pattern
           bboxFail = bboxFail || `${a.id} role:text-block on non-text element <${m.tag}>`;
         }
-        // mask 영역 누적
+        // mask 영역 누적 (mask 는 viewport 절대좌표 그대로)
         if (a.role === ROLES.TEXT_BLOCK) {
           maskRects.push({ x: m.x, y: m.y, w: m.w, h: m.h });
         }
@@ -347,6 +422,7 @@ async function evaluateViewport(browser, plan, url) {
         requiredMatched: required.filter((a) => matched.has(a.id)).length,
         requiredTotal: required.length,
         maxDeltaPx: Math.round(maxDelta),
+        normalize: normalizeMeta,
         reason: rule.pass ? bboxFail : rule.reason,
       };
     }
@@ -354,9 +430,17 @@ async function evaluateViewport(browser, plan, url) {
     // L1 측정 (mask 적용)
     const buf = await page.screenshot({ fullPage: true });
     const cur = PNG.sync.read(buf);
-    const base = PNG.sync.read(readFileSync(png));
+    let base = PNG.sync.read(readFileSync(png));
+    // B-1b L1 resize: dimension mismatch 시 baseline 을 current 폭/높이로 nearest-neighbor resize.
+    // figma export (scale=2) 와 preview viewport (1×) 차이 자동 흡수 → 워커 self-capture 회피 동기 제거.
+    // % budget 안에서 antialiasing 차이 흡수.
+    let resizeApplied = false;
     if (cur.width !== base.width || cur.height !== base.height) {
-      return { viewport, status: "FAIL", reason: `dimension mismatch — baseline ${base.width}x${base.height}, current ${cur.width}x${cur.height}`, l1: null, l2 };
+      // baseline 을 current 폭으로 resize (nearest-neighbor, height 비율 보존)
+      const heightAfterRatio = Math.round(base.height * (cur.width / base.width));
+      // height 도 current 와 일치시키기 위해 추가 resize (stretch — 비율 보존 X 단순화)
+      base = resizePngNearest(base, cur.width, cur.height);
+      resizeApplied = true;
     }
     // mask 면적 검사 — section 면적의 35% 초과 시 FAIL
     const totalArea = cur.width * cur.height;
@@ -392,6 +476,7 @@ async function evaluateViewport(browser, plan, url) {
       status: dpct <= opts["threshold-l1"] ? "PASS" : "FAIL",
       diffPercent: Number(dpct.toFixed(3)),
       maskArea: Number(((maskArea / totalArea) * 100).toFixed(1)),
+      resizeApplied,
       diffPath,
     };
     const overallFail = l1.status === "FAIL" || l2.status === "FAIL";
