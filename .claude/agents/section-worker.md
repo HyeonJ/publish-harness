@@ -37,6 +37,11 @@ model: sonnet
 - `previous_failures` (선택, retry_count ≥ 1 에서 제공): 지난 호출(들)에서 나온 구조화 실패 리스트
   - 형식: `[{ category, gate, file, line?, message, attempt }]`
   - 워커는 이를 반드시 읽어 **동일 원인 반복 금지**. 각 failure 의 `category` 별 가이드(§retry-strategies)에 따라 접근 변경
+  - **source 필드 (D.2 추가)**:
+    - `source: "worker"` — 이전 호출의 자체 보고 failure
+    - `source: "reviewer"` — code-reviewer agent 의 외부 시각 findings
+    - 두 source 가 같은 file:line 을 가리키면 reviewer 의 fix 제안을 우선
+    - reviewer findings 의 `antiLoopRisk` 가 `high` 인 카테고리는 retry_count=2 에서 반드시 다른 접근법 시도
 - `required_imports` (선택): 오케가 Phase 2 에서 식별한 공통 컴포넌트 목록.
   형식: `[{ name, path, variant? }]`. 명시된 컴포넌트는 **반드시 import해서 사용**.
   자체 인라인 재구현 금지 (DRY 위반 → 사후 리팩터 발생). 명시 없으면 자율 판단.
