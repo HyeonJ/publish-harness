@@ -52,7 +52,15 @@ function loadProtected(jsonPath) {
     console.error(`ERROR: invalid SSoT — 'paths' must be array`);
     process.exit(2);
   }
-  return new Set(data.paths.map((p) => p.replace(/\\/g, "/")));
+  // schema v2 (B-2): protected_dirs — 안 신규 파일 추가 차단 (sneak path 봉쇄).
+  // schema v1 호환 — protected_dirs 부재 시 빈 배열.
+  const protectedDirs = Array.isArray(data.protected_dirs)
+    ? data.protected_dirs.map((d) => d.replace(/\\/g, "/"))
+    : [];
+  return {
+    paths: new Set(data.paths.map((p) => p.replace(/\\/g, "/"))),
+    protectedDirs,
+  };
 }
 
 function git(args) {
@@ -83,14 +91,24 @@ function changedFiles(base, head) {
 
 function main() {
   const opts = parseArgs();
-  const protectedSet = loadProtected(opts.paths);
+  const { paths: protectedSet, protectedDirs } = loadProtected(opts.paths);
   const changed = changedFiles(opts.base, opts.head);
 
-  const violations = [...protectedSet].filter((p) => changed.has(p));
+  // 1) exact match (schema v1 호환) — 정확 path 가 changed 에 있으면 violation
+  const exactViolations = [...protectedSet].filter((p) => changed.has(p));
+  // 2) protected_dirs (schema v2) — 안 신규 파일 추가 차단
+  //    changed 의 path 가 protected_dir 안에 있으면서 protectedSet 의 exact path 가 아니면 violation
+  //    (sneak path: tokens.css 옆에 section-vars.css 같은 신규 파일 추가)
+  const dirViolations = [...changed].filter((c) =>
+    protectedDirs.some((d) => c.startsWith(d) && !protectedSet.has(c))
+  );
+  const violations = [...new Set([...exactViolations, ...dirViolations])];
+
   const report = {
     base: opts.base,
     head: opts.head ?? "WORKING_TREE",
     protected_count: protectedSet.size,
+    protected_dirs_count: protectedDirs.length,
     changed_count: changed.size,
     violations,
     status: violations.length === 0 ? "PASS" : "FAIL",
@@ -98,14 +116,16 @@ function main() {
   console.log(JSON.stringify(report, null, 2));
 
   if (violations.length > 0) {
+    const exactList = exactViolations.length ? exactViolations.map((v) => `  - ${v} (exact protected)`).join("\n") : "";
+    const dirList = dirViolations.length ? dirViolations.map((v) => `  - ${v} (sneak path — protected dir 안 신규 파일)`).join("\n") : "";
     console.error(
       `\n❌ G10 FAIL — write-protected paths 변경 발견 (${violations.length}):\n` +
-        violations.map((v) => `  - ${v}`).join("\n") +
+        [exactList, dirList].filter(Boolean).join("\n") +
         `\n워커 §금지 위반. 정당한 변경이면 오케스트레이터 직접 수정.`,
     );
     process.exit(1);
   }
-  console.error(`✓ G10 PASS — write-protected paths 변경 없음`);
+  console.error(`✓ G10 PASS — write-protected paths/dirs 변경 없음`);
   process.exit(0);
 }
 

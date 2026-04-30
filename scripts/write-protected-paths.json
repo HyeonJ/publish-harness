@@ -1,6 +1,6 @@
 {
-  "version": 1,
-  "description": "Write-protected paths — workers must never modify. Enforced by G10 (check-write-protection.mjs).",
+  "version": 2,
+  "description": "Write-protected paths + dirs — workers must never modify. Enforced by G10 (check-write-protection.mjs).",
   "paths": [
     "src/styles/tokens.css",
     "public/css/tokens.css",
@@ -11,5 +11,9 @@
     "docs/components-spec.md",
     "docs/handoff-README.md",
     "public/css/main.css"
+  ],
+  "protected_dirs": [
+    "src/styles/",
+    "public/css/"
   ]
 }
