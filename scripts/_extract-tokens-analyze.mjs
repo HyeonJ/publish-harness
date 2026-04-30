@@ -43,6 +43,15 @@ if (docRoots.length === 0) {
   process.exit(3);
 }
 
+// N3 (modern-retro-strict §retro-phase1-4 §F5/M3) — Figma named style 빈도 무관 전수.
+// /v1/files top-level "styles" 객체 (styleId → {name, styleType, ...}) + 노드의
+// styles.fill reference 를 활용해 named color 를 빈도 1이라도 강제 포함.
+//
+// raw.styles 형식 (REST /v1/files / /v1/files/nodes 응답 공통):
+//   { "<styleKey>": { "key": "...", "name": "Accent on Background 2",
+//                     "styleType": "FILL", "description": "..." } }
+const rawStyles = raw.styles || {};
+
 // ---------- 수집기 ----------
 // colorTally: hex → { count, names: Set<string> }  (names = 조상 레이어명 경로)
 const colorTally = new Map();
@@ -59,19 +68,30 @@ function rgbaToHex({ r, g, b, a = 1 }) {
   return hex;
 }
 
-function recordColor(hex, contextName) {
-  const cur = colorTally.get(hex) ?? { count: 0, names: new Set() };
+function recordColor(hex, contextName, namedStyleName = null) {
+  const cur = colorTally.get(hex) ?? { count: 0, names: new Set(), isNamedStyle: false };
   cur.count += 1;
   if (contextName) cur.names.add(contextName);
+  if (namedStyleName) {
+    cur.names.add(namedStyleName);
+    cur.isNamedStyle = true; // N3: top-N 외에도 강제 포함
+  }
   colorTally.set(hex, cur);
 }
 
-function tallyColor(paintArr, contextName) {
+function tallyColor(paintArr, contextName, styleRef = null) {
   if (!Array.isArray(paintArr)) return;
+  let namedStyleName = null;
+  if (styleRef && rawStyles[styleRef]) {
+    const styleInfo = rawStyles[styleRef];
+    if (styleInfo.styleType === "FILL") {
+      namedStyleName = normalizeLayerName(styleInfo.name) || styleInfo.name;
+    }
+  }
   for (const p of paintArr) {
     if (p.type === "SOLID" && p.color) {
       const hex = rgbaToHex({ ...p.color, a: p.opacity ?? p.color.a ?? 1 });
-      recordColor(hex, contextName);
+      recordColor(hex, contextName, namedStyleName);
     }
   }
 }
@@ -116,8 +136,11 @@ function walk(node, ancestry = []) {
   const contextPath = [...ancestry, myName].filter(Boolean).slice(-3).join("-");
 
   // color: fills / strokes / backgroundColor
-  if (node.fills) tallyColor(node.fills, MODE === "component" ? contextPath : null);
-  if (node.strokes) tallyColor(node.strokes, MODE === "component" ? contextPath : null);
+  // N3: 노드의 styles.fill / styles.stroke reference 가 있으면 named style 로 인식
+  const fillStyleRef = node.styles?.fill || node.styles?.fills;
+  const strokeStyleRef = node.styles?.stroke || node.styles?.strokes;
+  if (node.fills) tallyColor(node.fills, MODE === "component" ? contextPath : null, fillStyleRef);
+  if (node.strokes) tallyColor(node.strokes, MODE === "component" ? contextPath : null, strokeStyleRef);
   if (node.backgroundColor) {
     const hex = rgbaToHex(node.backgroundColor);
     recordColor(hex, MODE === "component" ? contextPath : null);
@@ -222,12 +245,25 @@ function classifyColors(sorted) {
     }
 
     usedNames.add(name);
-    tokens.push({ name, hex, count: entry.count, source: entry.names && entry.names.size > 0 ? "layer-name" : "heuristic" });
+    // N3: named style 표기 우선 (M3 미스매핑 추적용)
+    const source = entry.isNamedStyle
+      ? "named-style"
+      : (entry.names && entry.names.size > 0 ? "layer-name" : "heuristic");
+    tokens.push({ name, hex, count: entry.count, source });
   }
   return tokens;
 }
 
-const colorTokens = classifyColors(topN(colorTally, 18));
+// N3: top-18 + named style 인 모든 항목 union (빈도 무관 전수 포함)
+function topNWithNamedStyles(map, n) {
+  const sorted = [...map.entries()].sort((a, b) => b[1].count - a[1].count);
+  const topSlice = sorted.slice(0, n);
+  const topHexes = new Set(topSlice.map(([hex]) => hex));
+  // top-N 외에도 isNamedStyle 인 항목 추가
+  const extraNamed = sorted.filter(([hex, e]) => !topHexes.has(hex) && e.isNamedStyle);
+  return [...topSlice, ...extraNamed];
+}
+const colorTokens = classifyColors(topNWithNamedStyles(colorTally, 18));
 
 // 폰트: family별 groupby → 가중치 목록 집계
 function groupFonts(tally) {
