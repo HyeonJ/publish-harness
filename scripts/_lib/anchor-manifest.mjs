@@ -6,6 +6,14 @@
  *   version: 2,
  *   section: string,
  *   viewport: "desktop"|"tablet"|"mobile",
+ *   figmaPageWidth: number | null,    // B-1b: figma page frame 폭 (px). null 이면 normalize SKIP.
+ *                                     //   anchor bbox 의 figma 좌표를 viewport scale 변환할 때
+ *                                     //   기준이 되는 figma page width. extract-figma-anchors.mjs
+ *                                     //   가 추출. self-capture (회피 회로) 의 경우 추출 불가 → null.
+ *   source: "figma" | "self" | undefined,  // B-1 deprecated — 분석 원칙 #1: figma 가 유일한 진실의
+ *                                     //   원천이라 source='self' 합법화 가정 자체가 권위 분산. 호환을
+ *                                     //   위해 필드 read 는 가능하지만 'self' 인 manifest 는
+ *                                     //   migrate-baselines.mjs 가 detect 후 자동 마이그레이션 강제.
  *   anchors: [
  *     {
  *       id: string,                   // 예: "hero/title"
@@ -13,7 +21,9 @@
  *                                   //   (secondary-* and other open-ended values may appear in manifests but are not enumerated in ROLES)
  *       required: boolean,
  *       figmaNodeId: string | null,
- *       bbox: { x, y, w, h }
+ *       bbox: { x, y, w, h }          // figma 절대좌표 (절대 viewport 좌표 X). normalize 는
+ *                                     //   check-visual-regression.mjs 의 L2 단계에서 figmaPageWidth
+ *                                     //   기준으로 자동 처리.
  *     }
  *   ]
  * }
@@ -52,6 +62,15 @@ export function writeManifest(path, manifest) {
   if (manifest.version !== 2) throw new Error("manifest must be version 2");
   if (!manifest.section || !manifest.viewport) throw new Error("section/viewport required");
   if (!Array.isArray(manifest.anchors)) throw new Error("anchors must be array");
+  // figmaPageWidth: number | null. extract-figma-anchors 가 figma page frame 의
+  // absoluteBoundingBox.width 추출. 추출 실패 (self-capture 등) → null.
+  if (
+    manifest.figmaPageWidth !== undefined &&
+    manifest.figmaPageWidth !== null &&
+    typeof manifest.figmaPageWidth !== "number"
+  ) {
+    throw new Error("figmaPageWidth must be number or null");
+  }
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, JSON.stringify(manifest, null, 2) + "\n");
 }

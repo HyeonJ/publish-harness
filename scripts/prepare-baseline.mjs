@@ -113,9 +113,10 @@ async function prepareViewport(viewport) {
       `bash "${SCRIPT_DIR}/figma-rest-image.sh" "${opts["file-key"]}" "${opts["section-node"]}" "${pngPath}" --scale 2`,
       { stdio: "inherit" }
     );
-    // 2) anchors
+    // 2) anchors — B-1b: --page-node 옵트인 시 figmaPageWidth 자동 추출
+    const pageNodeArg = opts["page-node"] ? ` --page-node "${opts["page-node"]}"` : "";
     execSync(
-      `node "${SCRIPT_DIR}/extract-figma-anchors.mjs" --file-key "${opts["file-key"]}" --section-node "${opts["section-node"]}" --section "${opts.section}" --viewport "${viewport}" --out "${manifestPath}"`,
+      `node "${SCRIPT_DIR}/extract-figma-anchors.mjs" --file-key "${opts["file-key"]}" --section-node "${opts["section-node"]}"${pageNodeArg} --section "${opts.section}" --viewport "${viewport}" --out "${manifestPath}"`,
       { stdio: "inherit" }
     );
   } else if (opts.mode === "spec") {

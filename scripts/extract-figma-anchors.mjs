@@ -67,6 +67,28 @@ if (!sectionAbs) {
   process.exit(1);
 }
 
+// B-1b — figmaPageWidth 추출 (옵트인, --page-node 인자 명시 시).
+// page frame 의 absoluteBoundingBox.width 가 anchor bbox 좌표의 viewport scale
+// 변환 기준. 부재 시 null (normalize SKIP — check-visual-regression 가 fallback).
+// 추가 API 호출 1회 (depth=0 이라 가벼움).
+let figmaPageWidth = null;
+if (opts["page-node"]) {
+  try {
+    const pageUrl = `https://api.figma.com/v1/files/${opts["file-key"]}/nodes?ids=${encodeURIComponent(opts["page-node"])}&depth=0`;
+    const pageRes = await fetch(pageUrl, { headers: { "X-Figma-Token": TOKEN } });
+    if (pageRes.ok) {
+      const pageJson = await pageRes.json();
+      const pageNode = Object.values(pageJson.nodes)[0]?.document;
+      const w = pageNode?.absoluteBoundingBox?.width;
+      if (typeof w === "number" && w > 0) {
+        figmaPageWidth = Math.round(w);
+      }
+    }
+  } catch {
+    // graceful — figmaPageWidth: null 로 fallback
+  }
+}
+
 function isMeaningfulName(name) {
   if (!name) return false;
   if (/^Frame\s*\d+$/i.test(name)) return false;
@@ -171,6 +193,7 @@ const manifest = {
   version: 2,
   section: opts.section,
   viewport: opts.viewport,
+  figmaPageWidth, // B-1b: number | null. null 이면 check-visual-regression 의 L2 normalize SKIP.
   anchors,
 };
 
@@ -181,6 +204,7 @@ const ratio = anchors.length ? unknown / anchors.length : 0;
 console.log(JSON.stringify({
   section: opts.section,
   viewport: opts.viewport,
+  figmaPageWidth,
   total: anchors.length,
   unknown,
   unknownRatio: Number(ratio.toFixed(3)),
