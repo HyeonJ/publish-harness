@@ -209,11 +209,12 @@ docs/workflow.md §Phase 3 참고. 모든 게이트 평가 후 §5 반환 스키
 - **`retry_count`**: `0`=첫 호출 / `1`=가이드 재시도 / `2`=마지막 기회 (opus 승격 가능)
 - **`previous_failures`**: **JSON 배열 문자열로 직렬화**. retry_count≥1 에서만 비어있지 않음.
   ```
-  previous_failures: [{"category":"TOKEN_DRIFT","gate":"G4","file":"src/components/ui/Button.tsx","line":42,"message":"hex literal '#B84A32' found","attempt":0}]
+  previous_failures: [{"category":"TOKEN_DRIFT","gate":"G4","file":"src/components/ui/Button.tsx","line":42,"message":"hex literal '#B84A32' found","attempt":0,"source":"worker"}]
   ```
   - `category` enum (9개): `VISUAL_DRIFT` | `TOKEN_DRIFT` | `A11Y` | `TEXT_RASTER` | `I18N_MISSING` | `IMPORT_MISSING` | `SYNTAX_ERROR` | `LIGHTHOUSE` | `UNKNOWN`
   - `attempt`: 이 실패가 발견된 retry_count (0/1)
-  - 누적 전달: retry_count=2 호출 시 attempt=0 + attempt=1 failures 모두 포함
+  - `source`: `"worker"` (section-worker 자체 보고) | `"reviewer"` (code-reviewer 추가 — retry_count=1 직후 1회 주입). 워커가 출처 구분 가능하도록 모든 항목에 필수.
+  - 누적 전달: retry_count=2 호출 시 attempt=0 worker failures + attempt=1 worker failures + attempt=1 reviewer findings 모두 포함 (시간 순서 유지). reviewer findings 는 `category` + `gate` + `file` + `line` + `message` 형식을 worker 항목과 동일하게 정규화한다.
 - **`required_imports`**: JSON 배열 문자열.
   ```
   required_imports: [{"name":"Wordmark","path":"src/components/ui/Wordmark"},{"name":"Button","path":"src/components/ui/Button","variant":"default"}]
@@ -248,14 +249,16 @@ docs/workflow.md §Phase 3 참고. 모든 게이트 평가 후 §5 반환 스키
    ```
 4. 다음 단위로 즉시 진행
 
-**FAIL 처리** (feedback loop — 자동 재시도 최대 3회):
+**FAIL 처리** (feedback loop — 자동 재시도 최대 3회 + retry_count=1 직후 code-reviewer 1회):
 
 ```
 워커 retry_count=0 FAIL
   ↓ (자동)
 워커 retry_count=1 재스폰 + previous_failures 전달
   ↓ FAIL
-워커 retry_count=2 재스폰 + 누적 previous_failures + (선택) Opus 승격
+code-reviewer Agent 호출 (1회) — 외부 시각 점검
+  ↓ findings 를 previous_failures 에 누적 (source:"reviewer")
+워커 retry_count=2 재스폰 + 누적 previous_failures + (조건부) Opus 승격
   ↓ FAIL (needs_human: true)
 사용자 개입 — 선택지 제시
 ```
@@ -264,12 +267,36 @@ docs/workflow.md §Phase 3 참고. 모든 게이트 평가 후 §5 반환 스키
 
 1. **retry_count=0 FAIL → retry_count=1 자동 재스폰**
    - 사용자 보고 없이 자동 진행 (로그만 남김)
-   - 새 Agent 호출: 동일 section-worker, `retry_count: 1`, `previous_failures: <워커가 반환한 failures 배열>`
+   - 새 Agent 호출: 동일 section-worker, `retry_count: 1`, `previous_failures: <워커가 반환한 failures 배열, source:"worker">`
    - 같은 모델 (sonnet) 유지
 
-2. **retry_count=1 FAIL → retry_count=2 자동 재스폰**
-   - 누적 failures 배열 (attempt 0 + 1) 을 previous_failures 로 전달
-   - 복잡 섹션 판단 시 `model: opus` 승격 고려 (failures 개수 5+ 또는 카테고리 3종+ 혼재)
+2. **retry_count=1 FAIL → code-reviewer 1회 호출 → retry_count=2 자동 재스폰**
+   - 같은 워커가 self-review 를 반복하면 동일 카테고리가 회귀하므로 **외부 시각 1회** 를 끼워넣는다.
+   - **code-reviewer Agent 호출** (`subagent_type: "code-reviewer"`):
+     ```
+     Task({
+       subagent_type: "code-reviewer",
+       description: "Review {section} after retry_count=1 FAIL",
+       prompt: `
+     section_name: {section}
+     mode: figma | spec
+     files: <변경 파일 경로 JSON 배열>
+     last_failures: <워커가 retry_count=1 에서 반환한 failures 배열 JSON>
+     required_imports: <JSON 배열 — 모드 무관>
+     # spec 모드만:
+     spec_section: "3.1 <Button>"
+     brand_guardrails: <JSON 배열>
+
+     .claude/agents/code-reviewer.md §검사 절차 그대로 수행. 단일 JSON 블록 반환.
+     `
+     })
+     ```
+   - 반환된 `critical` + `important` 항목을 `previous_failures` 에 추가 (`attempt: 1`, `source: "reviewer"`, `category`/`gate`/`file`/`line`/`message` 정규화). `minor` 는 무시.
+   - **antiLoopRisk 분기**:
+     - `high` → `model: opus` 강제 승격 + 사용자 개입 선택지(재분할 등) 사전 노출
+     - `medium` → opus 승격 고려 (failures 카테고리 3종+ 혼재 시)
+     - `low` → sonnet 유지
+   - 새 Agent 호출: section-worker, `retry_count: 2`, 누적 `previous_failures` (worker × 2 + reviewer × 1) 전달.
 
 3. **retry_count=2 FAIL (needs_human: true) → 사용자 개입**
    - 누적 failures 요약 + 선택지 제시:
