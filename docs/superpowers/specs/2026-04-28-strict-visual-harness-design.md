@@ -1,12 +1,21 @@
 # Strict Visual Harness — 설계
 
 **작성일**: 2026-04-28
-**상태**: Draft v4 (목적 검증 + multi-viewport 보강)
+**상태**: Draft v5 (modern-retro-strict 1차 dogfooding 회고 반영)
 **브랜치**: `feat/strict-visual-harness`
 **트리거**: 사용자 요청 — "diff <5%" 차단 게이트 복원. 단, 옛날 heavy 가 폐기된 이유(absolute 회귀 + 운영 비용)를 동시에 해결.
 
 ## 변경 이력
 
+- **v4 → v5 (2026-04-30, modern-retro-strict 1차 dogfooding 회고 반영)**:
+  - **명칭 vs 보장 갭 명시 (§명세 보강)**: "G1 strict 는 **coherence 게이트**지 **design fidelity 게이트가 아님**" — 회고 §3.1 직격
+  - 회고 §2.2 M1+M2 메커니즘 ("잘못된 환경 baseline → strict 영원히 PASS") 차단:
+    - §5 G1 strict 의 "Playwright 안정화 조건" 을 **"환경 무결성 sanity check"** 로 격상
+    - 콘솔 에러 0건 검증 (woff2 OTS / 404 / decode) — 신규
+    - 사용 폰트 family ↔ document.fonts 등록 cross-check — 신규
+  - 회고 §5.1 B1 (tsconfig noEmit) / B3 (prepare-baseline Windows async crash) — spec 외부 운영 fix, plan 후속 PR 로 처리 (별도 commit b5c82e1 / 54578f5)
+  - 회고 §4.2 N3 (extract-tokens named color 빈도 무관 전수) / §4.2 N7 (woff2 무결성 검증) / §4.3 G13 (DS variant 매트릭스) — §16 알려진 한계 추가
+  - "환경 무결성" 별도 게이트 G12 신설 X — G1 strict 의 일부로 통합 (게이트 수 늘리는 비용 > 분리 이득)
 - **v3 → v4 (2026-04-28, 목적 검증 인터뷰 반영)**:
   - 사각지대 #1 보강: 사용자 환경에 mobile/tablet figma 디자인 거의 없음 발견 → (δ) 무력화 위험
   - 해결: Phase 2 분해 단계에서 **figma `use_figma` MCP 도구로 mobile/tablet frame 자동 생성**
@@ -40,6 +49,19 @@
 - **(a) AI 의 diff 좁히려는 압력 → 픽셀 맞추기 escape**: pixel + 코드 escape budget + 구조 매칭의 다축 게이트로 차단. pixel 통과해도 escape 사용 초과면 FAIL.
 - **(c) flex 코드의 1~3px 자연 오차**: pixel diff 단독 평가가 아니라 element bounding-box 매칭(L2) 으로 폰트 렌더링 차이 분리.
 
+### 1.1 명칭 vs 보장 갭 — coherence 게이트 (v5 명시)
+
+**G1 strict 는 "디자인 원본 vs 구현" 이 아니라 "내 baseline vs 내 코드" 만 본다.** baseline 자체가 잘못된 상태에서 박히면 strict 는 영원히 PASS 한다 (modern-retro-strict §retro-phase1-4 M1/M2/M3).
+
+→ G1 strict 는 **coherence 게이트** (회귀 detection): "한 번 박힌 상태에서 코드가 그 상태를 깨뜨리지 않는가". design fidelity 보장이 아님.
+
+**design fidelity 의 책임 분담**:
+- **워커**: figma 노드 → 코드 변환 시 의도된 디자인 결정 (폰트 family 등록 / 토큰 정확 매핑 / DS variant 사용)
+- **프로젝트 단위 dogfooding**: 사람이 figma 와 결과 페이지를 시각 비교 (하네스 자동화 영역 외)
+- **G1 strict**: 박힌 baseline 의 회귀 차단 — 환경 무결성 sanity check (§5) 로 baseline 자체가 잘못 박히는 것만 차단
+
+이걸 명시하지 않으면 사용자가 "G1 strict PASS = figma 와 일치" 로 오해. 회고 §3.1 핵심 지적.
+
 ## 2. 비목표
 
 - 픽셀 1px 정확도 보장 — L1 5% / L2 max(4px, 1%) 가 합리적 상한.
@@ -67,7 +89,7 @@
 
 | G | 도구 | 의미 | 양 모드 |
 |---|---|---|---|
-| G1 (strict) | `check-visual-regression.mjs` 확장 | L1 pixel ≤5% + L2 bbox `max(4px, 1%)` + 3 viewport 통과 | figma: 풀세트 / spec: L1 + multi-viewport, L2 SKIP |
+| G1 (strict) | `check-visual-regression.mjs` 확장 | L1 pixel ≤5% + L2 bbox `max(4px, 1%)` + 3 viewport 통과 + **환경 무결성 sanity check** (v5: 콘솔 에러 0건 + 폰트 family cross-check) | figma: 풀세트 / spec: L1 + multi-viewport, L2 SKIP |
 | G4 | `check-token-usage.mjs` | hex literal 금지 | 동일 |
 | G5 | eslint jsx-a11y | 시맨틱 / a11y | 동일 |
 | G6 | `check-text-ratio.mjs` | 텍스트 raster 차단 | 동일 |
@@ -92,7 +114,23 @@ node scripts/check-visual-regression.mjs \
   --strict
 ```
 
-### Playwright 안정화 조건 (필수)
+### 환경 무결성 sanity check (필수, v5 격상)
+
+dev 서버 캡처 직전 환경 검증 — **박힌 baseline 자체가 잘못된 환경 (폰트 fallback / 콘솔 에러) 으로 캡처되어 strict 가 영원히 PASS 하는 회로 차단**. modern-retro-strict §retro-phase1-4 M1+M2 직격.
+
+**검증 항목** (`_lib/playwright-stable.mjs` 의 `assertEnvironmentClean`):
+
+1. **콘솔 에러 0건** — `attachConsoleErrorCollector(page)` 가 `console`/`pageerror` 수집. 캡처 직전 에러 0 검증.
+   - 자주 보이는 패턴: `Failed to decode downloaded font`, `OTS parsing error`, 404 (fonts/assets)
+   - 1건이라도 있으면 캡처 abort + FAIL
+2. **사용 폰트 family ↔ `document.fonts` 등록 cross-check** — 페이지 안 모든 element 의 `getComputedStyle().fontFamily` 추출 vs `document.fonts` 의 `loaded` 상태 비교
+   - missing family 있으면 캡처 abort + FAIL
+   - generic family (`serif`, `sans-serif`, `monospace`, `system-ui` 등) 는 제외
+3. **`document.fonts.ready` 대기** + 애니메이션 frozen + 이미지 load 완료 (기존 `stabilizePage` 동작 유지)
+
+호출 위치 (`check-visual-regression.mjs`):
+- lite 모드 `--update-baseline` (워커 우회 경로) + 일반 비교
+- strict 모드 각 viewport 캡처 직전
 
 L1/L2 측정 안정성을 위해 매 측정 직전 보장:
 
@@ -791,6 +829,40 @@ codex 2차 리뷰 + 검증 인터뷰 중 plan 단계로 미룬 항목:
 - **G1 CLI 인터페이스 변경 마이그레이션** (LOW) — 기존 호출자 영향 plan 단계에서 정리
 - **measure-quality.sh fail-fast 순서 backward compat** (LOW) — JSON 출력 키 호환성
 - **multi-viewport fixture 정확한 baseline PNG 생성** (LOW) — fixture 구축은 implementation 작업
+
+### v5 추가 — modern-retro-strict 1차 dogfooding 회고 (2026-04-30)
+
+`workspace/modern-retro-strict/docs/retro-phase1-4.md` 인용. 20 단위 / 16 commit / 3h 32min 진행 후 회고.
+
+**작동한 것** (회고 §1):
+- 사이클 견고 (13/20 단위가 retry 0)
+- 게이트가 진짜 결함 1건 잡음 (Footer: tsconfig emit → 빈 baseline → G1 L1 FAIL)
+- 반복 카드 컴포넌트화 Phase 2 에서 미리 잡힘
+
+**v5 에 박힌 fix** (B1/B2/B3):
+- B1: `templates/vite-react-ts/tsconfig.json` noEmit + `.gitignore` 잔재 패턴 (commit b5c82e1)
+- B2: `_lib/playwright-stable.mjs` + `check-visual-regression.mjs` 환경 sanity check (commit 1bc1507)
+- B3: `prepare-baseline.mjs` Windows async crash 핸들링 (commit 54578f5)
+
+**v5 에 미반영 — 별도 트랙 (회고 §5.2 N1~N8)**:
+
+| 항목 | 트리거 | 우선순위 |
+|---|---|---|
+| N1 | `workflow.md` Component 페이지 키워드에 `Styles` 추가 (F10) | 낮음, 1줄 |
+| N2 | `extract-figma-anchors.mjs` 가드 3종 (text-block role 가드 / 0-size 제외 / sibling collision suffix) (F3) | 중간, 별도 PR |
+| **N3** | `extract-tokens.sh` named color style 빈도 무관 전수 + organism 내부 폰트 강제 포함 (F5/M3) | **높음 — M3 미스매핑 직격** |
+| N4 | G4 opacity 토큰 패밀리 (`--overlay-*` 또는 Tailwind `/20`) (F6) | 중간 |
+| N5 | G11 주석 strip / AST 처리 (F8) | 낮음 |
+| N6 | Phase 2 분해에 "단독 baseline 가능 여부" 체크 + Wordmark 패턴 (F9) | 낮음 |
+| **N7** | `extract-tokens.sh` 후 woff2 무결성 검증 (M2 백업 가드, B2 가 박혀서 후순위) | 중간 |
+| N8 | `figma-rest-image.sh` 의 `imageRef` UUID 다운로드 모드 (F7) | 낮음 |
+| **G13** | DS variant 매트릭스 — Phase 2 산출로 사용처별 variant 표 + 워커 prompt 강제 (M4) | **높음 — M4 인라인 재구현 직격, but 게이트화 X 워커 가이드로 처리 가능** |
+
+**여전히 미해결 사각지대** (회고 §2.2 M3/M4):
+- **M3 (`#613B0F` → `#000000` 미스매핑)**: extract-tokens 가 빈도 기반이라 named color 누락. N3 박혀야 차단.
+- **M4 (home-cta 인라인 재구현)**: IMPORT_MISSING 게이트는 "import 안 씀" 만 차단. variant 부족으로 인라인 재구현 미검출. G13 박혀야 차단.
+
+→ M3/M4 는 **coherence 게이트로는 본질적으로 못 잡음** (§1.1). design fidelity 영역. 별도 트랙으로 처리.
 
 ### v4 추가 — multi-viewport fallback 옵션 (use_figma 부족 시)
 
