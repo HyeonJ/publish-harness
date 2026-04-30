@@ -195,6 +195,14 @@ else
   hint "프로젝트에서 npm i -D @lhci/cli lighthouse"
 fi
 
+# Playwright browsers
+if [ -d "${HOME}/.cache/ms-playwright" ] || [ -d "${LOCALAPPDATA:-}/ms-playwright" ]; then
+  ok "Playwright browsers" "설치됨 (G1 visual regression 가능)"
+else
+  warn "Playwright browsers" "미설치 (G1 SKIP)"
+  hint "npx playwright install chromium"
+fi
+
 # ========== 프로젝트 레벨 체크 ==========
 if [ "$SKIP_PROJECT" -eq 0 ]; then
   section "5/5 프로젝트 구조 (실행 위치 기준)"
@@ -216,6 +224,59 @@ if [ "$SKIP_PROJECT" -eq 0 ]; then
     ok "PROGRESS.md" "존재"
   else
     warn "PROGRESS.md" "없음 (새 프로젝트면 bootstrap.sh 로 생성)"
+  fi
+
+  # Baseline 만료 (legacy.json expiresAt)
+  if [ -d baselines ]; then
+    now_epoch=$(date +%s)
+    expired=0
+    expiring_soon=0
+    for legacy in baselines/*/legacy.json; do
+      [ -f "$legacy" ] || continue
+      exp=$(node -e "const fs=require('node:fs');try{const j=JSON.parse(fs.readFileSync('$legacy','utf8'));console.log(Math.floor(new Date(j.expiresAt).getTime()/1000))}catch(e){console.log(0)}" 2>/dev/null || echo "0")
+      diff=$((exp - now_epoch))
+      if [ "$diff" -le 0 ]; then
+        expired=$((expired+1))
+      elif [ "$diff" -le 2592000 ]; then
+        expiring_soon=$((expiring_soon+1))
+      fi
+    done
+    if [ "$expired" -gt 0 ]; then
+      bad "Baseline 만료" "${expired}개 이미 만료"
+      hint "node scripts/migrate-baselines.mjs --renew"
+    elif [ "$expiring_soon" -gt 0 ]; then
+      warn "Baseline 만료" "${expiring_soon}개 30일 이내 만료 예정"
+    else
+      ok "Baseline 만료" "모두 유효"
+    fi
+  fi
+
+  # Write-protected paths drift
+  if [ -f scripts/write-protected-paths.json ]; then
+    drift=0
+    paths_list=$(node -e "const fs=require('node:fs');try{const j=JSON.parse(fs.readFileSync('./scripts/write-protected-paths.json','utf8'));console.log((j.paths||[]).join(' '))}catch(e){console.log('')}" 2>/dev/null || echo "")
+    for path in $paths_list; do
+      [ ! -e "$path" ] && drift=$((drift+1))
+    done
+    if [ "$drift" -gt 0 ]; then
+      warn "Write-protected paths" "${drift}개 누락 (G10 영향)"
+    else
+      ok "Write-protected paths" "전부 존재"
+    fi
+  fi
+
+  # Anchor manifest v1 잔재
+  if [ -d baselines ]; then
+    v1_count=0
+    for f in baselines/*/anchors-*.json; do
+      [ -f "$f" ] || continue
+      v=$(node -e "const fs=require('node:fs');try{const j=JSON.parse(fs.readFileSync('$f','utf8'));console.log(j.version||1)}catch(e){console.log(0)}" 2>/dev/null || echo "0")
+      [ "$v" = "1" ] && v1_count=$((v1_count+1))
+    done
+    if [ "$v1_count" -gt 0 ]; then
+      warn "Anchor manifest" "${v1_count}개 v1 잔재 (v2 마이그레이션 권장)"
+      hint "node scripts/migrate-baselines.mjs --upgrade-anchors"
+    fi
   fi
 else
   section "5/5 프로젝트 구조"
