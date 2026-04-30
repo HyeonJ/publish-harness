@@ -587,6 +587,7 @@ bash scripts/measure-quality.sh {section} public/__preview/{section} --files "$F
 - ❌ `failures[].category` 에 임의 이름 사용 (9개 enum 외 금지)
 - ❌ [ACCEPTED_DEBT] 태그 자체 판단
 - ❌ section 파일 (또는 section import 한 first-party 컴포넌트) 에서 `position: absolute/fixed/sticky` 사용 (G11 차단). 진짜 데코면 `data-allow-escape="<enum>"`
+- ❌ **`PROGRESS.md` / `progress.json` 직접 수정** — 진행 상태는 오케스트레이터가 `progress-update record-gate-result` 자동 호출로 반영. 워커는 PROGRESS.md 를 직접 수정하지 않는다 (참조 읽기만 OK)
 - ❌ Tailwind 매직 px (`w-[37px]`, `top-[12px]`) 남용 — 토큰 또는 standard 값 (4/8/16/24…) 사용
 - ❌ G11 의 budget 카테고리 임계 초과
 - ❌ npm 신규 패키지 추가 (필요시 오케에 요청)
