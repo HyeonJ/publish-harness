@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "project": { "name": "demo", "mode": "figma", "template": "vite-react-ts", "source": {}, "canvas": {} },
+  "phase": { "current": 1, "completed": [] },
+  "pages": [],
+  "sections": [],
+  "updatedAt": "2026-04-30T00:00:00Z"
+}

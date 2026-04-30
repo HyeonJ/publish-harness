@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "project": { "name": "demo", "mode": "figma", "template": "vite-react-ts", "source": {}, "canvas": {} },
+  "phase": { "current": 3, "completed": [1, 2] },
+  "pages": [{ "name": "home", "nodeId": "1:1", "nodeIdTablet": null, "nodeIdMobile": null, "status": "in_progress", "sections": ["home-bad"] }],
+  "sections": [
+    { "name": "home-bad", "page": "home", "kind": "section", "status": "blocked", "retryCount": 3, "lastGateResult": null, "needsHuman": true, "failureHistory": [{"attempt":0,"categories":["TOKEN_DRIFT"],"count":2}, {"attempt":1,"categories":["TOKEN_DRIFT"],"count":2}, {"attempt":2,"categories":["TOKEN_DRIFT"],"count":2}] }
+  ],
+  "updatedAt": "2026-04-30T00:00:00Z"
+}
