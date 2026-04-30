@@ -13,3 +13,13 @@ figma-screenshots/
 tmp/
 .lighthouseci/
 /dev-server.log
+
+# tsc emit residue (compilerOptions.noEmit=true 가 1차 가드, .gitignore 가 2차 가드)
+# Refs: modern-retro-strict dogfooding §retro-phase1-4 B1 — 3번째 워커 시점부터
+# vite resolution 이 .js 잔재 > .tsx 원본 으로 뒤집혀 빈 baseline 캡처 → G1 FAIL
+src/**/*.js
+!src/vite-env.d.ts
+*.tsbuildinfo
+# vite.config.ts 빌드 산출물 (tsconfig.node.json 이 composite 라 emit 발생)
+vite.config.js
+vite.config.d.ts
