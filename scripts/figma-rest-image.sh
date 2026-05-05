@@ -77,6 +77,7 @@ NODE_ID="${NODE_ID/-/:}"
 
 # ---------- FIGMA_TOKEN 로드 ----------
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+. "${SCRIPT_DIR}/_lib/node-shim.sh"
 . "${SCRIPT_DIR}/_lib/load-figma-token.sh"
 
 if [ -z "${FIGMA_TOKEN:-}" ]; then

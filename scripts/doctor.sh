@@ -4,12 +4,14 @@
 # 설치는 하지 않는다. 상태만 확인하고 미비한 항목에 대해 해결 명령어 안내.
 #
 # Usage:
-#   bash scripts/doctor.sh [--strict] [--skip-project] [--skip-figma] [--json]
+#   bash scripts/doctor.sh [--strict] [--skip-project] [--skip-figma] [--skip-claude] [--agent claude|codex|both] [--json]
 #
 # 옵션:
 #   --strict         선택 항목(lhci/gh 등)이 없어도 exit 1
 #   --skip-project   §5 프로젝트 구조 체크 스킵 (bootstrap.sh 에서 빈 디렉토리 실행 시 사용)
 #   --skip-figma     §2 Figma MCP / §3 Figma 인증 체크 스킵 (spec 모드 bootstrap 용)
+#   --skip-claude    §2 Claude Code 체크 스킵 (Codex-only bootstrap 용)
+#   --agent          claude|codex|both. codex 는 Claude Code 체크를 자동 스킵.
 #   --json           JSON 출력 모드 (CI 통합용, 사람용 ANSI 텍스트 억제)
 #                    출력: { "summary": { "fail": N, "warn": N }, "results": [ ... ] }
 #                    각 result: { "key": "...", "status": "ok|bad|warn", "value": "..." }
@@ -24,17 +26,29 @@ set -u
 STRICT=0
 SKIP_PROJECT=0
 SKIP_FIGMA=0
+SKIP_CLAUDE=0
 JSON_MODE=0
-for arg in "$@"; do
-  case "$arg" in
-    --strict) STRICT=1 ;;
-    --skip-project) SKIP_PROJECT=1 ;;
-    --skip-figma) SKIP_FIGMA=1 ;;
-    --json) JSON_MODE=1 ;;
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --strict) STRICT=1; shift ;;
+    --skip-project) SKIP_PROJECT=1; shift ;;
+    --skip-figma) SKIP_FIGMA=1; shift ;;
+    --skip-claude) SKIP_CLAUDE=1; shift ;;
+    --agent)
+      case "${2:-}" in
+        codex) SKIP_CLAUDE=1 ;;
+        claude|both) : ;;
+        *) echo "ERROR: unknown --agent value: ${2:-}" >&2; exit 2 ;;
+      esac
+      shift 2
+      ;;
+    --json) JSON_MODE=1; shift ;;
+    *) echo "ERROR: unknown option: $1" >&2; exit 2 ;;
   esac
 done
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+. "${SCRIPT_DIR}/_lib/node-shim.sh"
 . "${SCRIPT_DIR}/_lib/load-figma-token.sh"
 
 FAIL=0
@@ -130,7 +144,9 @@ fi
 # ========== Claude Code ==========
 section "2/5 Claude Code"
 
-if command -v claude >/dev/null 2>&1; then
+if [ "$SKIP_CLAUDE" -eq 1 ]; then
+  [ "$JSON_MODE" -eq 0 ] && printf "  \033[2m(--skip-claude/--agent codex: Claude Code 체크 생략)\033[0m\n"
+elif command -v claude >/dev/null 2>&1; then
   CLAUDE_VER=$(claude --version 2>/dev/null | head -1 || echo "unknown")
   ok "Claude Code CLI" "${CLAUDE_VER}"
 

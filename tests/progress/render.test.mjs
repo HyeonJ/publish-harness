@@ -21,7 +21,10 @@ test('render shows phase progress', () => {
 });
 
 test('render lists sections with status icons', () => {
-  const md = render(fx);
+  const withRoute = structuredClone(fx);
+  withRoute.pages[0].route = '/';
+  const md = render(withRoute);
+  assert.match(md, /### home \(\/\)/);
   assert.match(md, /- \[x\] home-hero/);
   assert.match(md, /- \[ \] home-features.*retry 1/);
   assert.match(md, /- \[!\] home-cta.*needs human/i);

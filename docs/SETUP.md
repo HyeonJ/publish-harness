@@ -10,8 +10,8 @@
 
 ```
 □ 1. 시스템 도구      Node 18+ / bash / git / curl
-□ 2. Claude Code CLI
-□ 3. Figma MCP 등록
+□ 2. 에이전트 선택 (Claude Code 또는 Codex)
+□ 3. Claude 사용 시 Figma MCP 등록
 □ 4. Figma PAT 발급 + FIGMA_TOKEN 등록
 □ 5. 하네스 리포 clone
 □ 6. doctor.sh 로 전체 확인
@@ -51,7 +51,25 @@ curl --version
 
 ---
 
-## §2. Claude Code CLI
+## §2. 에이전트 선택
+
+publish-harness는 같은 스크립트/게이트를 Claude와 Codex에서 공유한다.
+
+| 에이전트 | 필요한 파일 | bootstrap 옵션 |
+|---|---|---|
+| Claude | `.claude/`, `CLAUDE.md` | `--agent claude` (default) |
+| Codex | `AGENTS.md`, `docs/codex-*.md` | `--agent codex` |
+| 둘 다 | 위 항목 모두 | `--agent both` |
+
+Codex-only 환경에서는 Claude Code CLI가 없어도 된다:
+
+```bash
+bash scripts/doctor.sh --agent codex --skip-figma
+```
+
+---
+
+## §2-A. Claude Code CLI
 
 ### Windows
 [Claude Code 공식 설치 가이드](https://docs.claude.com/ko/docs/claude-code/overview) 를 따라 CLI 설치.
@@ -95,9 +113,12 @@ claude --version    # 0.x.x
 
 ---
 
-## §3. Figma MCP 등록
+## §3. Figma MCP 등록 (Claude 사용 시)
 
 `figma-developer-mcp` (NPM 기반, 공식 Figma 연동) 를 Claude Code에 등록.
+
+Codex-only 사용자는 이 단계를 건너뛸 수 있다. figma 모드의 에셋/토큰 추출은
+`FIGMA_TOKEN` 과 REST 스크립트로 처리한다.
 
 > **전제**: §4 에서 `FIGMA_TOKEN` 을 먼저 등록해야 MCP가 제대로 동작. 순서상 §4 먼저 한 뒤 §3 로 돌아와도 OK.
 

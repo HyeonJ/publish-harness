@@ -17,6 +17,7 @@
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+. "${SCRIPT_DIR}/_lib/node-shim.sh"
 . "${SCRIPT_DIR}/_lib/load-figma-token.sh"
 
 echo "=== Figma Personal Access Token 셋업 ==="

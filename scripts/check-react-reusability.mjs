@@ -1,0 +1,126 @@
+#!/usr/bin/env node
+/**
+ * G12 React reusability check.
+ *
+ * Catches the highest-cost publishing mistakes:
+ * - multi-page Figma projects rendered as a single monolithic App.tsx
+ * - repeated layout/page concepts not split into src/components/layout + src/pages
+ * - oversized section/component files that should be decomposed before commit
+ */
+
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { join } from "node:path";
+
+function parseArgs(argv) {
+  const opts = { files: "" };
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i];
+    if (arg.startsWith("--")) {
+      opts[arg.slice(2)] = argv[i + 1];
+      i++;
+    }
+  }
+  return opts;
+}
+
+function readText(path) {
+  try { return readFileSync(path, "utf8"); } catch { return ""; }
+}
+
+function walk(dir, out = []) {
+  if (!existsSync(dir)) return out;
+  for (const entry of readdirSync(dir)) {
+    const path = join(dir, entry);
+    const stat = statSync(path);
+    if (stat.isDirectory()) walk(path, out);
+    else out.push(path);
+  }
+  return out;
+}
+
+function lineCount(text) {
+  return text ? text.split(/\r?\n/).length : 0;
+}
+
+function hasReactFiles(dir) {
+  return walk(dir).some((file) => /\.(tsx|jsx)$/.test(file));
+}
+
+const opts = parseArgs(process.argv.slice(2));
+const root = process.cwd();
+const progress = existsSync(join(root, "progress.json"))
+  ? JSON.parse(readText(join(root, "progress.json")))
+  : null;
+const pages = progress?.pages || [];
+const pageCount = pages.length;
+const failures = [];
+const warnings = [];
+
+const appPath = join(root, "src", "App.tsx");
+const appText = readText(appPath);
+const appLines = lineCount(appText);
+const hasRoutes = /<Routes\b|createBrowserRouter|RouterProvider/.test(appText);
+
+if (pageCount > 1) {
+  if (!hasRoutes) {
+    failures.push({
+      code: "MULTI_PAGE_NO_ROUTER",
+      message: "progress.json has multiple pages but src/App.tsx does not define React routes.",
+      file: "src/App.tsx",
+    });
+  }
+  if (!hasReactFiles(join(root, "src", "components", "layout"))) {
+    failures.push({
+      code: "MISSING_SHARED_LAYOUT",
+      message: "multi-page React output must extract shared Header/Footer/SiteLayout into src/components/layout.",
+      file: "src/components/layout",
+    });
+  }
+  if (!hasReactFiles(join(root, "src", "pages")) && !hasReactFiles(join(root, "src", "app"))) {
+    failures.push({
+      code: "MISSING_PAGE_COMPONENTS",
+      message: "multi-page React output must keep route pages in src/pages or framework page files.",
+      file: "src/pages",
+    });
+  }
+}
+
+if (appLines > 220 && !hasRoutes) {
+  failures.push({
+    code: "MONOLITHIC_APP",
+    message: `src/App.tsx is ${appLines} lines without routing; split layout, pages, and reusable components.`,
+    file: "src/App.tsx",
+  });
+}
+
+const targetFiles = opts.files
+  ? opts.files.split(/\s+/).filter(Boolean)
+  : walk(opts.dir || "").filter((file) => /\.(tsx|jsx)$/.test(file));
+
+for (const file of targetFiles) {
+  const text = readText(file);
+  const lines = lineCount(text);
+  if (lines > 260) {
+    failures.push({
+      code: "OVERSIZED_COMPONENT",
+      message: `${file} is ${lines} lines; split repeated pieces into local subcomponents or shared components.`,
+      file,
+    });
+  } else if (lines > 180) {
+    warnings.push({
+      code: "LARGE_COMPONENT",
+      message: `${file} is ${lines} lines; verify it has clear subcomponents and data extraction.`,
+      file,
+    });
+  }
+}
+
+const result = {
+  status: failures.length ? "FAIL" : "PASS",
+  pageCount,
+  failures,
+  warnings,
+};
+
+console.log(JSON.stringify(result, null, 2));
+process.exit(failures.length ? 1 : 0);

@@ -15,6 +15,7 @@ model: sonnet
 3. `docs/project-context.md` (있으면) — 노드 ID / 컴포넌트 카탈로그 / 모드 필드
 4. `docs/token-audit.md` — 사용 가능한 토큰 인벤토리
 5. **spec 모드 추가**: `docs/components-spec.md` — 컴포넌트 API 명세 (prop/variant/state/token/예시/Don't)
+6. `docs/reusable-react-publishing.md` — React 재사용성/라우팅/컴포넌트 분리 기준
 
 ## 입력 (오케스트레이터가 prompt로 전달)
 
@@ -161,6 +162,18 @@ model: sonnet
 - `components-spec.md` 에 "canonical SVG" 블록이 있는 컴포넌트 (예: BrandMark)는 인라인 JSX `<svg>` 로 그대로 이식
 
 ### 3. 구현
+
+#### React 재사용성 기준 (필수)
+
+- multi-page React 출력은 `src/App.tsx` 를 라우팅/provider 조립으로 제한하고,
+  route page 는 `src/pages/*Page.tsx` 로 분리한다.
+- 전체 페이지에 반복되는 Header/Footer/SiteLayout 은 `src/components/layout/` 에
+  먼저 구현하고 모든 페이지에서 재사용한다. 페이지마다 JSX 복붙 금지.
+- Button, Wordmark, Badge, ProductCard, decorative divider 처럼 2+ 페이지 또는 3+
+  섹션에 반복되는 요소는 `src/components/ui` 또는 domain 폴더로 승격한다.
+- 반복 리스트는 data 배열 + item component 로 구현한다. 데이터/반복 markup/레이아웃을
+  큰 `App.tsx` 하나에 섞지 않는다.
+- `docs/publishing-log.md` 의 Reuse Plan 에 만든 공유 컴포넌트와 재사용 위치를 기록한다.
 
 컴포넌트 작성 규칙 (lite 하네스 절대 규칙):
 
@@ -417,12 +430,10 @@ node scripts/prepare-baseline.mjs --mode figma --section <section_name> --viewpo
 
 spec 모드 baseline 자동 생성은 LOW 위임 (#3) — 수동으로 baselines/<section>/<viewport>.png 준비 필요
 
-옵션 (baseline 없이 진행): 그냥 구현 후 G1 은 NO_BASELINE 으로 SKIP. 시각 확인 끝나고 OK 라고 판단되면 그때 `--update-baseline` 으로 현 상태를 baseline 으로 확정:
-```bash
-node scripts/check-visual-regression.mjs \
-  --section <section_name> --baseline baselines/<section_name>/desktop.png \
-  --update-baseline
-```
+구현 결과 스크린샷을 baseline 으로 확정하지 말 것. `--update-baseline` 은
+`UPDATE_BASELINE_ALLOWED=1` 없이는 실패하며, 워커 직접 호출 경로가 아니다.
+baseline 이 없으면 G1은 NO_BASELINE/strict failure 로 보고하고, 오케스트레이터가
+Figma 기준 `prepare-baseline.mjs` 또는 사람이 승인한 handoff baseline 커밋으로 처리한다.
 
 #### 4.2 게이트 실행
 

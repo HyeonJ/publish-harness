@@ -44,8 +44,9 @@ test('read/write roundtrip', () => {
 
 test('addPage appends and validates', () => {
   const obj = createEmpty({ name: 'x', mode: 'figma', template: 'vite-react-ts' });
-  addPage(obj, { name: 'home', nodeId: '1:1' });
+  addPage(obj, { name: 'home', route: '/', nodeId: '1:1' });
   assert.equal(obj.pages.length, 1);
+  assert.equal(obj.pages[0].route, '/');
   assert.equal(obj.pages[0].status, 'pending');
 });
 

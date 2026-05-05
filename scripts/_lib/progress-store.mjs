@@ -48,11 +48,11 @@ export function write(path, obj) {
   renameSync(tmp, path);
 }
 
-export function addPage(obj, { name, nodeId, nodeIdTablet = null, nodeIdMobile = null }) {
+export function addPage(obj, { name, nodeId, nodeIdTablet = null, nodeIdMobile = null, route = null }) {
   if (obj.pages.find((p) => p.name === name)) {
     throw new Error(`duplicate page: ${name}`);
   }
-  obj.pages.push({ name, nodeId, nodeIdTablet, nodeIdMobile, status: 'pending', sections: [] });
+  obj.pages.push({ name, route, nodeId, nodeIdTablet, nodeIdMobile, status: 'pending', sections: [] });
 }
 
 export function addSection(obj, { name, page, kind }) {
@@ -119,6 +119,7 @@ const GATE_FIELD_TO_KEY = {
   G8_i18n: 'G8',
   G10_write_protection: 'G10',
   G11_layout_escapes: 'G11',
+  G12_reusability: 'G12',
 };
 
 const GATE_TO_CATEGORY = {
@@ -130,6 +131,7 @@ const GATE_TO_CATEGORY = {
   G8: 'I18N',
   G10: 'WRITE_PROTECTION',
   G11: 'LAYOUT_ESCAPE',
+  G12: 'REUSABILITY',
 };
 
 // measure-quality 출력 형식 감지: G1_status 등 G* 필드가 있고 passed 필드는 없음.

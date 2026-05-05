@@ -48,7 +48,7 @@ export function render(progress) {
     if (i === 3) {
       // sections by page
       for (const page of progress.pages) {
-        lines.push(`### ${page.name}`);
+        lines.push(`### ${page.name}${page.route ? ` (${page.route})` : ''}`);
         for (const sname of page.sections) {
           const s = progress.sections.find((x) => x.name === sname);
           if (s) lines.push(sectionLine(s));

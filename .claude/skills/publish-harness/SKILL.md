@@ -79,7 +79,15 @@ bootstrap.sh 공통:
 
 새 페이지 시작 시 오케스트레이터가 **직접** 수행 (워커 스폰 불필요):
 
-1. 사용자로부터 페이지 Node ID 수령 (또는 `docs/project-context.md`에서 조회)
+0. Figma URL 에 `node-id` 가 없거나 `docs/project-context.md` 페이지 테이블이 비어 있으면
+   먼저 route page discovery 를 실행:
+   ```bash
+   node scripts/discover-figma-pages.mjs --file-key <fileKey> --out docs/figma-pages.md --apply
+   node scripts/progress-render.mjs
+   ```
+   `Home`, `/about`, `/find-us` 같은 top-level SECTION/FRAME 은 한 페이지의 섹션이 아니라
+   별도 route page 로 등록한다. 대표 프레임 1개만 임의 선택 금지.
+1. 사용자로부터 페이지 Node ID 수령 (또는 `docs/project-context.md` / `docs/figma-pages.md`에서 조회)
 2. `get_metadata` 또는 REST `/v1/files/{key}/nodes?ids=<pageNodeId>&depth=3` 으로 섹션 트리 추출
 3. 서브섹션으로 분할하는 조건 (4가지 중 하나라도 해당):
    - 예상 MCP 토큰 > 12K
@@ -93,6 +101,10 @@ bootstrap.sh 공통:
    - `docs/project-context.md` 공통 컴포넌트 카탈로그에 기록
    - **이 단계를 놓치면** 섹션 워커들이 각자 인라인 구현해서 사후 리팩터 비용 발생
      (예: 로고를 Nav `<a>text</a>`, Footer `<p>text</p>`, Header `<img>` 로 각자 구현)
+   - 다중 페이지 프로젝트는 Phase 3 전에 `src/components/layout` 과 `src/pages`
+     구조를 먼저 계획한다. Header/Footer/SiteLayout, Wordmark, Button, ProductCard 등
+     반복 요소는 `docs/publishing-log.md` 의 Reuse Plan 에 기록하고 `required_imports`
+     로 후속 워커에 전달한다.
 
 5. **반응형 프레임 감지** (페이지별 Tablet/Mobile 디자인 유무 확인):
    - `get_metadata` 응답에서 **같은 페이지의 뷰포트 변종** 탐색

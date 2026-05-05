@@ -39,6 +39,7 @@
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+. "${SCRIPT_DIR}/_lib/node-shim.sh"
 
 # ---------- template 자동 조회 (project-context.md 우선, env override 가능) ----------
 if [ -z "${TEMPLATE:-}" ]; then
@@ -141,6 +142,7 @@ G7_STATUS="SKIP"
 G8_STATUS="SKIP"
 G10_STATUS="SKIP"
 G11_STATUS="SKIP"
+G12_STATUS="SKIP"
 
 # ---------- G1 visual regression (strict default + LITE 옵트아웃) ----------
 echo "[G1] visual regression (section=${section})"
@@ -326,6 +328,31 @@ else
   fi
 fi
 
+# ---------- G12 React reusability ----------
+echo ""
+echo "[G12] React reusability"
+if [ "$TEMPLATE" = "html-static" ]; then
+  echo "  ⚠ G12 SKIP (html-static)"
+elif [ ! -f "${SCRIPT_DIR}/check-react-reusability.mjs" ]; then
+  echo "  ⚠ G12 SKIP — script missing"
+else
+  if [ "$TARGET_SCOPE" = "files" ]; then
+    G12_JSON=$(node "${SCRIPT_DIR}/check-react-reusability.mjs" --section "$section" --dir "$dir" --files "$TARGET_SET" 2>/tmp/g12.err || true)
+  else
+    G12_JSON=$(node "${SCRIPT_DIR}/check-react-reusability.mjs" --section "$section" --dir "$dir" 2>/tmp/g12.err || true)
+  fi
+  if echo "$G12_JSON" | grep -q '"status":[[:space:]]*"PASS"'; then
+    G12_STATUS="PASS"
+    echo "  ✓ G12 PASS"
+  else
+    G12_STATUS="FAIL"
+    FAIL=1
+    echo "$G12_JSON"
+    cat /tmp/g12.err 2>/dev/null || true
+    echo "  ❌ G12 FAIL"
+  fi
+fi
+
 # ---------- JSON 결과 저장 ----------
 # G1_DETAIL 가 JSON 이면 그대로, 아니면 status 만
 if [ -z "$G1_DETAIL" ]; then
@@ -347,7 +374,8 @@ cat > "$OUT" <<EOF
   "G7_lighthouse": "$G7_STATUS",
   "G8_i18n": "$G8_STATUS",
   "G10_write_protection": "$G10_STATUS",
-  "G11_layout_escapes": "$G11_STATUS"
+  "G11_layout_escapes": "$G11_STATUS",
+  "G12_reusability": "$G12_STATUS"
 }
 EOF
 
@@ -367,7 +395,7 @@ echo ""
 echo "=================================="
 echo "결과 저장: $OUT"
 if [ "$FAIL" -eq 0 ]; then
-  echo "✓ G4/G5/G6/G8/G10/G11 PASS (G1/G7 환경별)"
+  echo "✓ G4/G5/G6/G8/G10/G11/G12 PASS (G1/G7 환경별)"
   exit 0
 else
   echo "❌ 품질 게이트 미통과. 구현 재검토 후 재실행."

@@ -36,6 +36,7 @@ switch (subcmd) {
     const obj = read(PROGRESS_PATH);
     addPage(obj, {
       name: args.name,
+      route: args.route || null,
       nodeId: args['node-id'],
       nodeIdTablet: args['node-id-tablet'] || null,
       nodeIdMobile: args['node-id-mobile'] || null,

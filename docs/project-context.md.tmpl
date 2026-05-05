@@ -62,6 +62,12 @@ Phase 2 분해 시 다음을 반드시 확인:
 - [ ] 반복 아이콘 (화살표, 체크, SNS 등)
 - [ ] 반복 문구 (회사명, 태그라인, "Find near you" 같은 CTA 라벨)
 - [ ] 반복 패턴 컨테이너 (ProductCard, ListItem 등 3+ 반복)
+- [ ] 다중 페이지면 `src/pages` + `src/components/layout` 구조를 먼저 계획
+- [ ] Header/Footer/SiteLayout 은 페이지별 복붙이 아니라 공통 layout 으로 구현
+
+React 산출물은 `docs/reusable-react-publishing.md` 를 따른다. `measure-quality.sh` 는
+G12 reusability 로 multi-page no-router, missing shared layout, monolithic App 같은
+고비용 구조 문제를 차단한다.
 
 | 컴포넌트 | 위치 | 재사용 섹션 | 상태 |
 |---------|------|-------------|------|

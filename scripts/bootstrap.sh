@@ -27,6 +27,10 @@
 #                            html-static 은 figma 모드만 지원 (spec×html-static 은 mismatch).
 #                            nextjs-app-router 는 figma/spec 양 모드 지원
 #                            (figma 검증 미완료 — docs/template-support-matrix.md §검증 상태 참조).
+#   --agent <name>           작업 에이전트 지원 파일: claude (default) | codex | both.
+#                            claude: .claude/ + CLAUDE.md 복사
+#                            codex: AGENTS.md + Codex 가이드 문서 복사
+#                            both: 둘 다 복사
 #
 # 환경변수:
 #   FIGMA_TOKEN     figma 모드 필수 (extract-tokens 호출용). spec 모드는 불필요.
@@ -36,6 +40,7 @@ set -u
 
 MODE="figma"
 TEMPLATE="vite-react-ts"
+AGENT="claude"
 FIGMA_URL=""
 PROJECT_NAME=""
 COMPONENT_URL=""
@@ -58,6 +63,10 @@ while [ $# -gt 0 ]; do
       ;;
     --component-url)
       COMPONENT_URL="$2"
+      shift 2
+      ;;
+    --agent)
+      AGENT="$2"
       shift 2
       ;;
     -h|--help)
@@ -103,6 +112,16 @@ case "$TEMPLATE" in
     ;;
   *)
     echo "ERROR: 알 수 없는 --template: $TEMPLATE (vite-react-ts | html-static | nextjs-app-router)" >&2
+    exit 2
+    ;;
+esac
+
+# ---------- agent 검증 ----------
+case "$AGENT" in
+  claude|codex|both)
+    ;;
+  *)
+    echo "ERROR: 알 수 없는 --agent: $AGENT (claude | codex | both)" >&2
     exit 2
     ;;
 esac
@@ -201,7 +220,7 @@ cleanup_html_static_post_extract() {
   rm -rf tmp
 }
 
-echo "[bootstrap] mode=${MODE} template=${TEMPLATE} project=${PROJECT_NAME}"
+echo "[bootstrap] mode=${MODE} template=${TEMPLATE} agent=${AGENT} project=${PROJECT_NAME}"
 if [ "$MODE" = "figma" ]; then
   echo "[bootstrap] fileKey=${FILE_KEY}"
   [ -n "$COMPONENT_NODE_ID" ] && echo "[bootstrap] component-page nodeId=${COMPONENT_NODE_ID}"
@@ -215,6 +234,10 @@ if [ -z "${HARNESS_DIR:-}" ]; then
   HARNESS_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 fi
 
+if [ -f "$HARNESS_DIR/scripts/_lib/node-shim.sh" ]; then
+  . "$HARNESS_DIR/scripts/_lib/node-shim.sh"
+fi
+
 if [ ! -d "$HARNESS_DIR/templates/$TEMPLATE" ]; then
   echo "ERROR: HARNESS_DIR 에 templates/$TEMPLATE 없음: $HARNESS_DIR" >&2
   exit 3
@@ -226,7 +249,7 @@ fi
 # exit code 를 명시적으로 포착한다.
 if [ -f "$HARNESS_DIR/scripts/doctor.sh" ]; then
   echo "[bootstrap] 선행 환경 체크 (doctor.sh)"
-  DOCTOR_ARGS="--skip-project"
+  DOCTOR_ARGS="--skip-project --agent ${AGENT}"
   if [ "$MODE" = "spec" ]; then
     DOCTOR_ARGS="$DOCTOR_ARGS --skip-figma"
   fi
@@ -292,11 +315,18 @@ node "${HARNESS_DIR}/scripts/progress-update.mjs" init \
 node "${HARNESS_DIR}/scripts/progress-render.mjs"
 rm -f PROGRESS.md.tmpl  # 잔재 제거 (구버전 호환)
 
-# ---------- 3. .claude/ 복사 ----------
-echo "[bootstrap] 3/9 .claude/ agents + skills 복사"
-mkdir -p .claude
-cp -r "$HARNESS_DIR/.claude/agents" .claude/
-cp -r "$HARNESS_DIR/.claude/skills" .claude/
+# ---------- 3. agent support 복사 ----------
+echo "[bootstrap] 3/9 agent support 복사 (${AGENT})"
+if [ "$AGENT" = "claude" ] || [ "$AGENT" = "both" ]; then
+  mkdir -p .claude
+  cp -r "$HARNESS_DIR/.claude/agents" .claude/
+  cp -r "$HARNESS_DIR/.claude/skills" .claude/
+  echo "  ✓ .claude/ agents + skills"
+fi
+if [ "$AGENT" = "codex" ] || [ "$AGENT" = "both" ]; then
+  cp "$HARNESS_DIR/AGENTS.md" AGENTS.md
+  echo "  ✓ AGENTS.md"
+fi
 
 # ---------- 4. scripts/ 복사 ----------
 echo "[bootstrap] 4/9 scripts/ 복사"
@@ -311,8 +341,16 @@ cp "$HARNESS_DIR/scripts/check-text-ratio-html.mjs" scripts/
 cp "$HARNESS_DIR/scripts/check-token-usage-html.mjs" scripts/
 cp "$HARNESS_DIR/scripts/check-write-protection.mjs" scripts/
 cp "$HARNESS_DIR/scripts/write-protected-paths.json" scripts/
+cp "$HARNESS_DIR/scripts/check-react-reusability.mjs" scripts/
 cp "$HARNESS_DIR/scripts/assemble-page-preview.mjs" scripts/
 cp "$HARNESS_DIR/scripts/check-visual-regression.mjs" scripts/
+# progress/state CLI (Claude/Codex 공통 오케스트레이션 진입점)
+cp "$HARNESS_DIR/scripts/progress-update.mjs" scripts/
+cp "$HARNESS_DIR/scripts/progress-render.mjs" scripts/
+cp "$HARNESS_DIR/scripts/why.mjs" scripts/
+cp "$HARNESS_DIR/scripts/status.mjs" scripts/
+cp "$HARNESS_DIR/scripts/next.mjs" scripts/
+cp "$HARNESS_DIR/scripts/discover-figma-pages.mjs" scripts/
 # strict visual harness 추가 스크립트 (T1-T22)
 cp "$HARNESS_DIR/scripts/extract-figma-anchors.mjs" scripts/
 cp "$HARNESS_DIR/scripts/prepare-baseline.mjs" scripts/
@@ -333,15 +371,31 @@ mkdir -p docs
 cp "$HARNESS_DIR/docs/workflow.md" docs/
 cp "$HARNESS_DIR/docs/team-playbook.md" docs/
 cp "$HARNESS_DIR/docs/responsive-figma-generator.md" docs/
+cp "$HARNESS_DIR/docs/reusable-react-publishing.md" docs/
+if [ ! -f docs/publishing-log.md ] && [ -f "$HARNESS_DIR/docs/publishing-log.md.tmpl" ]; then
+  cp "$HARNESS_DIR/docs/publishing-log.md.tmpl" docs/publishing-log.md
+fi
+if [ "$AGENT" = "codex" ] || [ "$AGENT" = "both" ]; then
+  cp "$HARNESS_DIR/docs/codex-section-worker.md" docs/
+  cp "$HARNESS_DIR/docs/codex-model-policy.md" docs/
+fi
 # project-context.md.tmpl → project-context.md (치환)
 if [ -f "$HARNESS_DIR/docs/project-context.md.tmpl" ]; then
   PREVIEW_URL_DISPLAY="http://127.0.0.1:5173"
   render_template "$HARNESS_DIR/docs/project-context.md.tmpl" docs/project-context.md
 fi
 
-# ---------- 6. CLAUDE.md 복사 ----------
-echo "[bootstrap] 6/9 CLAUDE.md 복사"
-cp "$HARNESS_DIR/CLAUDE.md" CLAUDE.md
+# ---------- 6. agent root docs 복사 ----------
+echo "[bootstrap] 6/9 agent root docs 복사"
+if [ "$AGENT" = "claude" ] || [ "$AGENT" = "both" ]; then
+  cp "$HARNESS_DIR/CLAUDE.md" CLAUDE.md
+  echo "  ✓ CLAUDE.md"
+fi
+if [ "$AGENT" = "codex" ] || [ "$AGENT" = "both" ]; then
+  # AGENTS.md 는 3/9 에서 복사하지만, 기존 프로젝트 재부트스트랩 시에도 갱신 보장.
+  cp "$HARNESS_DIR/AGENTS.md" AGENTS.md
+  echo "  ✓ AGENTS.md"
+fi
 
 # ---------- 7. npm install ----------
 echo "[bootstrap] 7/9 npm install (오래 걸릴 수 있음)"
@@ -466,33 +520,43 @@ git commit -q -m "$COMMIT_MSG" || echo "  (이미 커밋된 상태)"
 
 echo ""
 echo "=================================="
-echo "✓ bootstrap 완료 (mode=${MODE})"
+echo "✓ bootstrap 완료 (mode=${MODE}, agent=${AGENT})"
 echo ""
-echo "⚠⚠⚠ 중요 — Claude Code 세션 재시작 필수 ⚠⚠⚠"
-echo ""
-echo "  이 bootstrap을 Claude Code 세션 안에서 실행했다면,"
-echo "  방금 생성된 .claude/agents/section-worker.md 는 현재 세션의 Agent"
-echo "  레지스트리에 반영되지 않습니다 (세션 시작 시점에 동결됨)."
-echo ""
-echo "  반드시 다음 순서를 지키세요:"
-echo "  1. 현재 Claude 세션에서 /exit"
-echo "  2. 같은 디렉토리에서 'claude --dangerously-skip-permissions' 재시작"
-echo "  3. 새 세션에서 'publish-harness 스킬로 첫 페이지/컴포넌트 진행' 지시"
-echo ""
+if [ "$AGENT" = "claude" ] || [ "$AGENT" = "both" ]; then
+  echo "⚠⚠⚠ 중요 — Claude Code 세션 재시작 필수 ⚠⚠⚠"
+  echo ""
+  echo "  이 bootstrap을 Claude Code 세션 안에서 실행했다면,"
+  echo "  방금 생성된 .claude/agents/section-worker.md 는 현재 세션의 Agent"
+  echo "  레지스트리에 반영되지 않습니다 (세션 시작 시점에 동결됨)."
+  echo ""
+  echo "  반드시 다음 순서를 지키세요:"
+  echo "  1. 현재 Claude 세션에서 /exit"
+  echo "  2. 같은 디렉토리에서 'claude --dangerously-skip-permissions' 재시작"
+  echo "  3. 새 세션에서 'publish-harness 스킬로 첫 페이지/컴포넌트 진행' 지시"
+  echo ""
+fi
 echo "=================================="
 echo "다음 단계 (세션 재시작 후):"
 if [ "$MODE" = "figma" ]; then
   echo "  1. docs/token-audit.md 를 열어 추출된 토큰 검토"
   echo "  2. docs/project-context.md 에 페이지 Node ID 채우기"
   echo "  3. npm run dev 로 dev 서버 기동 (선택)"
-  echo "  4. Claude Code 세션에서:"
-  echo "     \"publish-harness 스킬로 첫 페이지 진행\""
+  if [ "$AGENT" = "codex" ]; then
+    echo "  4. Codex 세션에서 AGENTS.md + docs/codex-section-worker.md 기준으로 첫 페이지 진행"
+  else
+    echo "  4. Claude Code 세션에서:"
+    echo "     \"publish-harness 스킬로 첫 페이지 진행\""
+  fi
 else
   echo "  1. docs/components-spec.md 를 열어 임포트된 컴포넌트 명세 검토"
   echo "  2. docs/project-context.md 에 구현할 컴포넌트 목록 채우기"
   echo "  3. npm run dev 로 dev 서버 기동 (선택)"
-  echo "  4. Claude Code 세션에서:"
-  echo "     \"publish-harness 스킬로 Foundation 컴포넌트부터 진행\""
+  if [ "$AGENT" = "codex" ]; then
+    echo "  4. Codex 세션에서 AGENTS.md + docs/codex-section-worker.md 기준으로 Foundation 컴포넌트부터 진행"
+  else
+    echo "  4. Claude Code 세션에서:"
+    echo "     \"publish-harness 스킬로 Foundation 컴포넌트부터 진행\""
+  fi
 fi
 echo ""
 echo "📦 strict visual harness 의존성 (선택, 없으면 G1 SKIP):"

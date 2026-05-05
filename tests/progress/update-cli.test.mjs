@@ -31,10 +31,11 @@ test('init refuses to overwrite existing progress.json', () => {
 test('add-page + add-section', () => {
   const dir = mkdtempSync(join(tmpdir(), 'pu-'));
   run(dir, ['init', '--name', 'demo', '--mode', 'figma', '--template', 'vite-react-ts']);
-  run(dir, ['add-page', '--name', 'home', '--node-id', '1:1']);
+  run(dir, ['add-page', '--name', 'home', '--route', '/', '--node-id', '1:1']);
   run(dir, ['add-section', '--name', 'home-hero', '--page', 'home', '--kind', 'section']);
   const obj = JSON.parse(readFileSync(join(dir, 'progress.json'), 'utf8'));
   assert.equal(obj.pages[0].name, 'home');
+  assert.equal(obj.pages[0].route, '/');
   assert.equal(obj.sections[0].name, 'home-hero');
 });
 

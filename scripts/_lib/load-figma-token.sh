@@ -20,9 +20,16 @@
 # 플로우" 인 경우도 있기 때문.
 
 if [ -z "${FIGMA_TOKEN:-}" ]; then
+  POWERSHELL_BIN=""
   if command -v powershell >/dev/null 2>&1; then
+    POWERSHELL_BIN="powershell"
+  elif command -v powershell.exe >/dev/null 2>&1; then
+    POWERSHELL_BIN="powershell.exe"
+  fi
+
+  if [ -n "$POWERSHELL_BIN" ]; then
     # Windows User scope에서 로드
-    FIGMA_TOKEN=$(powershell -NoProfile -Command "[Environment]::GetEnvironmentVariable('FIGMA_TOKEN', 'User')" 2>/dev/null | tr -d '\r\n')
+    FIGMA_TOKEN=$("$POWERSHELL_BIN" -NoProfile -Command "[Environment]::GetEnvironmentVariable('FIGMA_TOKEN', 'User')" 2>/dev/null | tr -d '\r\n')
     if [ -n "${FIGMA_TOKEN:-}" ]; then
       export FIGMA_TOKEN
     fi

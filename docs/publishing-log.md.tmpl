@@ -1,0 +1,48 @@
+# Publishing Log
+
+Source:
+- Figma URL:
+- fileKey:
+- Agent:
+- Harness commit:
+
+## Route Discovery
+
+Record route/page discovery before implementation. If the Figma URL has no
+`node-id`, run:
+
+```bash
+node scripts/discover-figma-pages.mjs --file-key <fileKey> --out docs/figma-pages.md --apply
+```
+
+| Page | Route | Desktop Node | Tablet Node | Mobile Node | Status |
+|---|---|---|---|---|---|
+| Home | `/` | | | | |
+
+## Reuse Plan
+
+List shared components before implementing sections.
+
+| Component | Path | Reused by | Source |
+|---|---|---|---|
+| SiteLayout | `src/components/layout/SiteLayout.tsx` | all pages | Phase 2 |
+| Header | `src/components/layout/Header.tsx` | all pages | Phase 2 |
+| Footer | `src/components/layout/Footer.tsx` | all pages | Phase 2 |
+
+## Timeline
+
+| Step | Time spent | Status | Notes |
+|---|---:|---|---|
+| Bootstrap | | | |
+| Route discovery | | | |
+| Reuse plan | | | |
+| Implementation | | | |
+| Gates | | | |
+
+## Errors And Issues
+
+Record issues with their root cause, not only the workaround.
+
+| Time | Issue | Root cause | Resolution | Follow-up |
+|---|---|---|---|---|
+| | | | | |

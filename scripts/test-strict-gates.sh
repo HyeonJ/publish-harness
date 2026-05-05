@@ -5,6 +5,7 @@
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+. "${SCRIPT_DIR}/_lib/node-shim.sh"
 ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 FIXTURE_DIR="${ROOT}/tests/fixtures/strict-gate"
 

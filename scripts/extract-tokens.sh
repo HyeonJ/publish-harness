@@ -73,6 +73,7 @@ if [ -z "$FILE_KEY" ]; then
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+. "${SCRIPT_DIR}/_lib/node-shim.sh"
 . "${SCRIPT_DIR}/_lib/load-figma-token.sh"
 
 if [ -z "${FIGMA_TOKEN:-}" ]; then
