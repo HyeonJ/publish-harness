@@ -384,6 +384,7 @@ cp "$HARNESS_DIR/docs/workflow.md" docs/
 cp "$HARNESS_DIR/docs/team-playbook.md" docs/
 cp "$HARNESS_DIR/docs/responsive-figma-generator.md" docs/
 cp "$HARNESS_DIR/docs/reusable-react-publishing.md" docs/
+cp "$HARNESS_DIR/docs/windows-command-policy.md" docs/
 if [ ! -f docs/publishing-log.md ] && [ -f "$HARNESS_DIR/docs/publishing-log.md.tmpl" ]; then
   cp "$HARNESS_DIR/docs/publishing-log.md.tmpl" docs/publishing-log.md
 fi

@@ -33,6 +33,17 @@
 
 Git for Windows를 설치하면 `bash.exe` 가 PATH에 등록되므로 **PowerShell / cmd / Git Bash 어디서든** `bash scripts/xxx.sh` 호출 가능. 이 문서의 `bash` 명령은 전부 그대로 사용 가능.
 
+PowerShell에서 `npm`/`npx`를 직접 `Start-Process`로 실행하지 마세요.
+Windows에서는 `npm.ps1`/`npx.ps1` shim이 파일 연결을 타고 열릴 수 있으므로
+`npm.cmd`/`npx.cmd`를 명시합니다.
+
+```powershell
+npm.cmd install
+npm.cmd run dev
+npx.cmd playwright install chromium
+Start-Process -FilePath "npm.cmd" -ArgumentList "run", "dev" -WindowStyle Hidden
+```
+
 **셸별 차이가 나는 건 3가지뿐**:
 1. 환경변수 확인/설정 문법 (`$var` vs `$env:var` vs `%var%`)
 2. `claude mcp add` 의 토큰 변수 전개 (`$FIGMA_TOKEN` vs `$env:FIGMA_TOKEN`)

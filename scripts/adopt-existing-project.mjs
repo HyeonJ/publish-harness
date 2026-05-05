@@ -122,6 +122,7 @@ copyRequired(join(harnessDir, "docs", "workflow.md"), join(cwd, "docs", "workflo
 copyRequired(join(harnessDir, "docs", "team-playbook.md"), join(cwd, "docs", "team-playbook.md"));
 copyRequired(join(harnessDir, "docs", "responsive-figma-generator.md"), join(cwd, "docs", "responsive-figma-generator.md"));
 copyRequired(join(harnessDir, "docs", "reusable-react-publishing.md"), join(cwd, "docs", "reusable-react-publishing.md"));
+copyRequired(join(harnessDir, "docs", "windows-command-policy.md"), join(cwd, "docs", "windows-command-policy.md"));
 copyIfMissing(join(harnessDir, "docs", "publishing-log.md.tmpl"), join(cwd, "docs", "publishing-log.md"));
 copyIfMissing(join(harnessDir, "docs", "codex-section-worker.md"), join(cwd, "docs", "codex-section-worker.md"));
 copyIfMissing(join(harnessDir, "docs", "codex-model-policy.md"), join(cwd, "docs", "codex-model-policy.md"));

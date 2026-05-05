@@ -16,12 +16,15 @@ skills or subagent frontmatter.
    - `node scripts/next.mjs --json` to identify the next unit
 4. Design tokens are the source of truth. Use `src/styles/tokens.css` and avoid
    raw hex colors except the allowlisted neutrals enforced by G4.
-5. Do not modify write-protected source-of-truth files during section work:
+5. On Windows PowerShell, use `npm.cmd` and `npx.cmd` explicitly. For background
+   servers use `Start-Process -FilePath "npm.cmd" ...`; do not launch
+   `Start-Process npm` or `Start-Process npx`.
+6. Do not modify write-protected source-of-truth files during section work:
    `tokens.css`, `fonts.css`, `tailwind.config.*`, `docs/components-spec.md`,
    and any path listed in `scripts/write-protected-paths.json`.
-6. Do not commit until the relevant gates pass through
+7. Do not commit until the relevant gates pass through
    `bash scripts/measure-quality.sh <section> <section-dir>`.
-7. In figma mode, use Figma REST scripts for screenshots/assets. In spec mode,
+8. In figma mode, use Figma REST scripts for screenshots/assets. In spec mode,
    do not call Figma; use `docs/components-spec.md`, reference HTML, and tokens.
 
 ## Codex Workflow

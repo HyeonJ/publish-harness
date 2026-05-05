@@ -66,6 +66,9 @@ component tree, assets, tokens, and known risks.
 ## Step 3: Implementation
 
 - Edit only the files owned by the current unit.
+- On Windows PowerShell, run package-manager commands as `npm.cmd` and
+  `npx.cmd`. For background dev servers use
+  `Start-Process -FilePath "npm.cmd" -ArgumentList "run", "dev" -WindowStyle Hidden`.
 - Use `required_imports` instead of recreating shared components.
 - For multi-page React output, create route page components in `src/pages`,
   shared layout in `src/components/layout`, and keep `src/App.tsx` limited to
