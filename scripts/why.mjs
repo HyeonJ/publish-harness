@@ -11,6 +11,18 @@ const RULES = [
     recommendations: () => ['bash scripts/bootstrap.sh <figma-url> 또는 --mode spec --from-handoff <dir>'],
   },
   {
+    code: 'HARNESS_ADOPTION_INCOMPLETE',
+    when: ({ progress, cwd }) => !!progress && !!cwd && !existsSync(join(cwd, 'templates')) && [
+      'scripts/measure-quality.sh',
+      'scripts/check-react-reusability.mjs',
+      'scripts/discover-figma-pages.mjs',
+      'docs/project-context.md',
+      'docs/reusable-react-publishing.md',
+    ].some((path) => !existsSync(join(cwd || '.', path))),
+    message: () => 'publish-harness tracking exists, but required scripts/docs are missing. This usually means the template was copied manually or adoption is incomplete.',
+    recommendations: () => ['node <publish-harness>/scripts/adopt-existing-project.mjs --figma-url <url> --agent codex'],
+  },
+  {
     code: 'FIGMA_TOKEN_MISSING',
     when: ({ progress, env }) => progress.project.mode === 'figma' && !env.FIGMA_TOKEN,
     message: () => 'figma 모드인데 FIGMA_TOKEN 환경변수 없음.',

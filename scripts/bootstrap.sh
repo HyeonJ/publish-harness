@@ -45,6 +45,7 @@ FIGMA_URL=""
 PROJECT_NAME=""
 COMPONENT_URL=""
 HANDOFF_DIR=""
+FORCE=0
 
 # 인자 파싱: 옵션 + positional 혼합
 while [ $# -gt 0 ]; do
@@ -68,6 +69,10 @@ while [ $# -gt 0 ]; do
     --agent)
       AGENT="$2"
       shift 2
+      ;;
+    --force)
+      FORCE=1
+      shift
       ;;
     -h|--help)
       sed -n '2,35p' "$0"
@@ -268,7 +273,13 @@ fi
 
 # 현재 디렉토리 비어있는지 확인 (node_modules 제외)
 EXISTING=$(find . -maxdepth 1 -mindepth 1 ! -name node_modules ! -name ".git" 2>/dev/null | wc -l)
-if [ "$EXISTING" -gt 0 ]; then
+if [ "$EXISTING" -gt 0 ] && [ "$FORCE" -ne 1 ]; then
+  echo "ERROR: current directory is not empty; bootstrap would copy an app template over existing files." >&2
+  echo "  New project: run bootstrap.sh in an empty directory." >&2
+  echo "  Existing project: run node ${HARNESS_DIR}/scripts/adopt-existing-project.mjs --figma-url <url> --agent ${AGENT} --template ${TEMPLATE}" >&2
+  echo "  Override only when intentional: add --force." >&2
+  exit 5
+elif [ "$EXISTING" -gt 0 ]; then
   echo "WARN: 현재 디렉토리 비어있지 않음. 파일 덮어쓰기 가능성." >&2
   echo "  계속하려면 3초 안에 Ctrl+C 로 취소하거나 Enter." >&2
   read -t 3 -r || true
@@ -342,6 +353,7 @@ cp "$HARNESS_DIR/scripts/check-token-usage-html.mjs" scripts/
 cp "$HARNESS_DIR/scripts/check-write-protection.mjs" scripts/
 cp "$HARNESS_DIR/scripts/write-protected-paths.json" scripts/
 cp "$HARNESS_DIR/scripts/check-react-reusability.mjs" scripts/
+cp "$HARNESS_DIR/scripts/adopt-existing-project.mjs" scripts/
 cp "$HARNESS_DIR/scripts/assemble-page-preview.mjs" scripts/
 cp "$HARNESS_DIR/scripts/check-visual-regression.mjs" scripts/
 # progress/state CLI (Claude/Codex 공통 오케스트레이션 진입점)

@@ -39,12 +39,18 @@ For each publishing request:
 5. For implementation, follow `docs/codex-section-worker.md`.
 6. For React targets, follow `docs/reusable-react-publishing.md`: routes in
    `src/pages`, shared layout in `src/components/layout`, reusable UI/domain
-   components before repeated sections, and a small routing-only `App.tsx`.
+   components before repeated sections, a small routing-only `App.tsx`, and CSS
+   split by ownership boundary (`src/styles/components/*`,
+   `src/styles/pages/*`).
 7. Maintain `docs/publishing-log.md` from the template, including route
    discovery, reuse plan, root causes, and follow-ups.
-8. Record gate results with `progress-update record-gate-result` when a result
+8. New publishing projects must start with `bootstrap.sh` in an empty
+   directory. Existing projects must be adopted with
+   `node <publish-harness>/scripts/adopt-existing-project.mjs`; direct template
+   copy is not a completed harness workflow.
+9. Record gate results with `progress-update record-gate-result` when a result
    JSON exists, then render `PROGRESS.md`.
-9. Commit only the completed unit and its isolated assets/docs.
+10. Commit only the completed unit and its isolated assets/docs.
 
 ## Model Policy
 

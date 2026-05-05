@@ -70,6 +70,9 @@ component tree, assets, tokens, and known risks.
 - For multi-page React output, create route page components in `src/pages`,
   shared layout in `src/components/layout`, and keep `src/App.tsx` limited to
   routing/provider composition.
+- Split CSS by ownership boundary. Keep `src/styles/index.css` as imports only,
+  put reusable component/layout rules under `src/styles/components`, and put
+  route-specific rules under `src/styles/pages`.
 - Extract repeated cards, buttons, wordmarks, badges, and dividers before
   implementing dependent page sections. Use data arrays plus item components for
   repeated lists.
@@ -127,6 +130,12 @@ Maintain `docs/publishing-log.md` during the run. Record route discovery, reuse
 plan, gate results, and issues with root cause and follow-up. If a wrong port,
 wrong app, missing node-id, or manual workaround occurs, log it as a harness
 learning rather than only as a local fix.
+
+Do not skip harness initialization. For an empty target directory run
+`bootstrap.sh`; for an existing React project run
+`node <publish-harness>/scripts/adopt-existing-project.mjs` before
+implementation. A copied template without progress, scripts, and docs is
+incomplete.
 
 ## Retry Policy
 

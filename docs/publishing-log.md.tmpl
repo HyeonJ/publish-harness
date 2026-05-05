@@ -34,6 +34,7 @@ List shared components before implementing sections.
 | Step | Time spent | Status | Notes |
 |---|---:|---|---|
 | Bootstrap | | | |
+| Adopt existing project | | | Use only when the target directory was not empty. |
 | Route discovery | | | |
 | Reuse plan | | | |
 | Implementation | | | |
@@ -42,6 +43,11 @@ List shared components before implementing sections.
 ## Errors And Issues
 
 Record issues with their root cause, not only the workaround.
+
+If bootstrap was skipped, record it as a workflow deviation and list the manual
+adoption artifacts that were created: `progress.json`, `PROGRESS.md`, `scripts`,
+`docs/project-context.md`, `docs/reusable-react-publishing.md`, and
+`docs/figma-pages.md`.
 
 | Time | Issue | Root cause | Resolution | Follow-up |
 |---|---|---|---|---|
