@@ -83,6 +83,10 @@ component tree, assets, tokens, and known risks.
   Figma foreground/background order matches the browser screenshot.
 - Normalize reusable logo/icon cards. If assets vary in viewBox or whitespace,
   add metadata such as `logoScale`, `logoClassName`, or `--logo-*` CSS variables.
+- Preserve Figma hug-content behavior for pills, chips, tags, badges, and small
+  labels. Use `inline-flex`, `width: fit-content`, `white-space: nowrap`, and
+  start self-alignment; do not let these controls stretch across a grid column
+  unless the Figma node is explicitly full width.
 - Fix broken text encoding before gates. Mojibake in React/data strings is a
   defect.
 - Extract repeated cards, buttons, wordmarks, badges, and dividers before

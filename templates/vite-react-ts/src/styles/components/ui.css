@@ -1,1 +1,15 @@
 /* Reusable UI component styles such as buttons, badges, and dividers belong here. */
+
+.pill,
+.chip,
+.tag,
+.badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: fit-content;
+  max-width: 100%;
+  white-space: nowrap;
+  justify-self: start;
+  align-self: start;
+}

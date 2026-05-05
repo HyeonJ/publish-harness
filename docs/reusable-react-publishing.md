@@ -44,6 +44,10 @@ for shared Header/Footer/SiteLayout.
   `src/styles/responsive.css`.
 - Variants such as button tone or footer tone should use modifier classes
   (`brand-button--dark`, `footer--caramel`) instead of inline `style` objects.
+- Figma hug-content controls such as pills, chips, tags, badges, and small
+  labels must not stretch to the parent column. Use `inline-flex`,
+  `width: fit-content`, `white-space: nowrap`, and start self-alignment unless
+  the Figma node is explicitly full width.
 - Remove scaffold placeholders such as `src/routes/HomePlaceholder.tsx` before
   publishing.
 - Decorative images must live behind content with explicit layer rules. Use a
@@ -64,6 +68,8 @@ for shared Header/Footer/SiteLayout.
 - CSS for all pages in one huge page stylesheet.
 - `index.css` containing hundreds of lines of rules instead of imports.
 - Inline style objects used for reusable variants that should be CSS classes.
+- Pill/chip/tag/badge/label controls using `width: 100%`, `flex: 1`, stretch
+  self-alignment, or block/flex display without fit-content behavior.
 - Bootstrap placeholder routes left in `src/routes`.
 - Absolute decorative images with positive z-index above page content.
 - Project/logo cards that treat every logo asset as visually equivalent.
@@ -84,3 +90,5 @@ React templates. It blocks the most expensive structural mistakes:
 - monolithic or oversized CSS files
 - scaffold placeholders and mojibake text
 - warnings for suspicious decorative z-index and unnormalized logo cards
+- warnings for stretched pill/chip/tag/badge/label controls that should hug
+  contents

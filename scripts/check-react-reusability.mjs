@@ -7,6 +7,7 @@
  * - repeated layout/page concepts not split into src/components/layout + src/pages
  * - all CSS concentrated in one large stylesheet instead of page/component files
  * - scaffold leftovers, mojibake text, and reusable logo/decor layering gaps
+ * - content-fit controls such as pills/chips/tags stretched to full width
  * - oversized section/component files that should be decomposed before commit
  */
 
@@ -61,8 +62,8 @@ function isImportOnlyCss(text) {
 }
 
 function findMojibake(text) {
-  const strongMarkers = ["\uFFFD", "?셫", "I?셫"];
-  const weakMarkers = ["챕", "짤", "遺", "硫"];
+  const strongMarkers = ["\uFFFD", "I?\uC157"];
+  const weakMarkers = ["\uCC55", "\uC9E4", "\u907A", "\uF98E"];
   const strong = strongMarkers.find((marker) => text.includes(marker));
   if (strong) return { marker: strong, severity: "failure" };
   const weak = weakMarkers.find((marker) => text.includes(marker));
@@ -104,6 +105,39 @@ function findDecorLayerWarnings(cssText, rel) {
       warnings.push({
         code: "DECOR_LAYER_POINTER_EVENTS",
         message: `${rel} selector "${selector}" looks decorative but does not set pointer-events: none.`,
+        file: rel,
+      });
+    }
+  }
+  return warnings;
+}
+
+function findContentFitControlWarnings(cssText, rel) {
+  const warnings = [];
+  const blockPattern = /([^{}]+)\{([^}]*)\}/g;
+  let match;
+  while ((match = blockPattern.exec(cssText))) {
+    const selector = match[1].trim();
+    const body = match[2];
+    const isContentFitControl =
+      /\.(?:[A-Za-z0-9_-]*(?:pill|chip|tag|badge)[A-Za-z0-9_-]*|[A-Za-z0-9_-]*(?:--label|__label)\b)/i.test(selector);
+    if (!isContentFitControl) continue;
+
+    if (/\bwidth\s*:\s*100%/.test(body) || /\bflex\s*:\s*1\b/.test(body) || /(?:align|justify)-self\s*:\s*stretch/.test(body)) {
+      warnings.push({
+        code: "CONTENT_FIT_CONTROL_STRETCH",
+        message: `${rel} selector "${selector}" looks like a pill/chip/tag/label but can stretch. Figma hug-content controls should use inline-flex, width: fit-content, and start self-alignment.`,
+        file: rel,
+      });
+    }
+
+    const hasInlineDisplay = /display\s*:\s*inline-(?:flex|grid|block)/.test(body);
+    const hasFitWidth = /width\s*:\s*(?:fit-content|max-content)/.test(body);
+    const hasStretchyDisplay = /display\s*:\s*(?:flex|grid|block)/.test(body);
+    if (hasStretchyDisplay && !hasInlineDisplay && !hasFitWidth) {
+      warnings.push({
+        code: "CONTENT_FIT_CONTROL_NOT_HUGGING",
+        message: `${rel} selector "${selector}" looks like a Figma hug-content control but does not declare inline display or fit-content width.`,
         file: rel,
       });
     }
@@ -248,6 +282,7 @@ for (const file of cssFiles) {
     });
   }
   warnings.push(...findDecorLayerWarnings(text, rel));
+  warnings.push(...findContentFitControlWarnings(text, rel));
 }
 
 const projectCardPath = join(root, "src", "components", "ui", "ProjectCard.tsx");

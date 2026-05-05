@@ -32,6 +32,15 @@ future agents; fix encoding problems before adding screenshots or comments.
   like `--logo-scale`.
 - Compare optical size against Figma, not only CSS box size.
 
+### Hug-Content Controls
+
+- Pills, chips, tags, badges, and small labels should match Figma hug-content
+  sizing.
+- Use `inline-flex`, `width: fit-content`, `white-space: nowrap`, and
+  `justify-self`/`align-self: start`.
+- Do not allow label controls to stretch to the parent grid/flex column unless
+  the Figma node is explicitly full width.
+
 ### Text Encoding
 
 - Fix mojibake before verification.
