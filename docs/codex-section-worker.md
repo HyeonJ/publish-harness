@@ -76,6 +76,15 @@ component tree, assets, tokens, and known risks.
 - Split CSS by ownership boundary. Keep `src/styles/index.css` as imports only,
   put reusable component/layout rules under `src/styles/components`, and put
   route-specific rules under `src/styles/pages`.
+- Remove scaffold placeholders before finishing. `src/routes/HomePlaceholder.tsx`
+  must not remain in published React output.
+- Keep decorative images behind content. Give decorative layers
+  `pointer-events: none`, avoid positive z-index above content, and verify that
+  Figma foreground/background order matches the browser screenshot.
+- Normalize reusable logo/icon cards. If assets vary in viewBox or whitespace,
+  add metadata such as `logoScale`, `logoClassName`, or `--logo-*` CSS variables.
+- Fix broken text encoding before gates. Mojibake in React/data strings is a
+  defect.
 - Extract repeated cards, buttons, wordmarks, badges, and dividers before
   implementing dependent page sections. Use data arrays plus item components for
   repeated lists.
@@ -133,6 +142,9 @@ Maintain `docs/publishing-log.md` during the run. Record route discovery, reuse
 plan, gate results, and issues with root cause and follow-up. If a wrong port,
 wrong app, missing node-id, or manual workaround occurs, log it as a harness
 learning rather than only as a local fix.
+
+Maintain `docs/defect.md` when a screenshot review finds an issue that gates did
+not catch. Include root cause, fix plan, verification, and a harness follow-up.
 
 Do not skip harness initialization. For an empty target directory run
 `bootstrap.sh`; for an existing React project run

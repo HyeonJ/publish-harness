@@ -388,6 +388,9 @@ cp "$HARNESS_DIR/docs/windows-command-policy.md" docs/
 if [ ! -f docs/publishing-log.md ] && [ -f "$HARNESS_DIR/docs/publishing-log.md.tmpl" ]; then
   cp "$HARNESS_DIR/docs/publishing-log.md.tmpl" docs/publishing-log.md
 fi
+if [ ! -f docs/defect.md ] && [ -f "$HARNESS_DIR/docs/defect.md.tmpl" ]; then
+  cp "$HARNESS_DIR/docs/defect.md.tmpl" docs/defect.md
+fi
 if [ "$AGENT" = "codex" ] || [ "$AGENT" = "both" ]; then
   cp "$HARNESS_DIR/docs/codex-section-worker.md" docs/
   cp "$HARNESS_DIR/docs/codex-model-policy.md" docs/

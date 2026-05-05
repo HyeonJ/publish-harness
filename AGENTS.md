@@ -26,6 +26,9 @@ skills or subagent frontmatter.
    `bash scripts/measure-quality.sh <section> <section-dir>`.
 8. In figma mode, use Figma REST scripts for screenshots/assets. In spec mode,
    do not call Figma; use `docs/components-spec.md`, reference HTML, and tokens.
+9. If screenshot review finds a visual defect that gates missed, maintain
+   `docs/defect.md` with root cause, fix plan, verification, and harness
+   follow-up.
 
 ## Codex Workflow
 

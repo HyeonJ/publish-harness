@@ -1,0 +1,38 @@
+# Defect Log
+
+Record visual or workflow defects that gates missed. Keep this file readable by
+future agents; fix encoding problems before adding screenshots or comments.
+
+## Defect Template
+
+### D-001: <short title>
+
+- Status: open | fixed | verified | wontfix
+- Page/route:
+- Figma reference:
+- Implementation screenshot:
+- Root cause:
+- Fix plan:
+- Verification:
+- Harness follow-up:
+
+## Common Visual Defects To Check
+
+### Decorative Layering
+
+- Decorative images must not cover text, nav, cards, or footer content.
+- Decorative assets should use `pointer-events: none`.
+- Prefer a dedicated decor layer in layout components.
+- Content layers such as header/main/footer should have explicit stacking order.
+
+### Logo And Icon Normalization
+
+- Logos with different viewBox/whitespace need per-asset normalization.
+- Use metadata such as `logoScale`, `logoClassName`, `logoFit`, or CSS variables
+  like `--logo-scale`.
+- Compare optical size against Figma, not only CSS box size.
+
+### Text Encoding
+
+- Fix mojibake before verification.
+- Treat broken strings in React/data files as implementation defects.

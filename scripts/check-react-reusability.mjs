@@ -6,6 +6,7 @@
  * - multi-page Figma projects rendered as a single monolithic App.tsx
  * - repeated layout/page concepts not split into src/components/layout + src/pages
  * - all CSS concentrated in one large stylesheet instead of page/component files
+ * - scaffold leftovers, mojibake text, and reusable logo/decor layering gaps
  * - oversized section/component files that should be decomposed before commit
  */
 
@@ -59,6 +60,57 @@ function isImportOnlyCss(text) {
     .every((line) => line.startsWith("@import "));
 }
 
+function findMojibake(text) {
+  const strongMarkers = ["\uFFFD", "?셫", "I?셫"];
+  const weakMarkers = ["챕", "짤", "遺", "硫"];
+  const strong = strongMarkers.find((marker) => text.includes(marker));
+  if (strong) return { marker: strong, severity: "failure" };
+  const weak = weakMarkers.find((marker) => text.includes(marker));
+  if (weak) return { marker: weak, severity: "warning" };
+  return null;
+}
+
+function reportMojibake({ file, marker, severity }) {
+  return {
+    code: "MOJIBAKE_TEXT",
+    message: `${file} contains possible mojibake marker "${marker}". Fix text encoding before publishing.`,
+    file,
+    severity,
+  };
+}
+
+function parseNumericZIndex(cssBlock) {
+  const match = cssBlock.match(/z-index\s*:\s*(-?\d+)/);
+  return match ? Number(match[1]) : null;
+}
+
+function findDecorLayerWarnings(cssText, rel) {
+  const warnings = [];
+  const blockPattern = /([^{]*(?:decor|ornament|floating|egg|pizza)[^{]*)\{([^}]*)\}/gi;
+  let match;
+  while ((match = blockPattern.exec(cssText))) {
+    const selector = match[1].trim();
+    const body = match[2];
+    if (!/position\s*:\s*absolute/.test(body)) continue;
+    const z = parseNumericZIndex(body);
+    if (z !== null && z > 0) {
+      warnings.push({
+        code: "DECOR_LAYER_ABOVE_CONTENT",
+        message: `${rel} selector "${selector}" looks like an absolute decorative layer with z-index ${z}; decorative assets should sit behind content and use pointer-events: none.`,
+        file: rel,
+      });
+    }
+    if (!/pointer-events\s*:\s*none/.test(body)) {
+      warnings.push({
+        code: "DECOR_LAYER_POINTER_EVENTS",
+        message: `${rel} selector "${selector}" looks decorative but does not set pointer-events: none.`,
+        file: rel,
+      });
+    }
+  }
+  return warnings;
+}
+
 const opts = parseArgs(process.argv.slice(2));
 const root = process.cwd();
 const progress = existsSync(join(root, "progress.json"))
@@ -73,6 +125,14 @@ const appPath = join(root, "src", "App.tsx");
 const appText = readText(appPath);
 const appLines = lineCount(appText);
 const hasRoutes = /<Routes\b|createBrowserRouter|RouterProvider/.test(appText);
+
+if (existsSync(join(root, "src", "routes", "HomePlaceholder.tsx"))) {
+  failures.push({
+    code: "SCAFFOLD_PLACEHOLDER_PRESENT",
+    message: "src/routes/HomePlaceholder.tsx is a bootstrap placeholder and must be removed from published React output.",
+    file: "src/routes/HomePlaceholder.tsx",
+  });
+}
 
 if (pageCount > 1) {
   if (!hasRoutes) {
@@ -131,6 +191,12 @@ const targetFiles = opts.files
 for (const file of targetFiles) {
   const text = readText(file);
   const lines = lineCount(text);
+  const mojibake = findMojibake(text);
+  if (mojibake) {
+    const item = reportMojibake({ file, marker: mojibake.marker, severity: mojibake.severity });
+    if (mojibake.severity === "failure") failures.push(item);
+    else warnings.push(item);
+  }
   if (lines > 260) {
     failures.push({
       code: "OVERSIZED_COMPONENT",
@@ -143,6 +209,17 @@ for (const file of targetFiles) {
       message: `${file} is ${lines} lines; verify it has clear subcomponents and data extraction.`,
       file,
     });
+  }
+}
+
+const sourceTextFiles = walk(join(root, "src", "data")).filter((file) => /\.(ts|tsx|js|jsx)$/.test(file));
+for (const file of sourceTextFiles) {
+  const text = readText(file);
+  const mojibake = findMojibake(text);
+  if (mojibake) {
+    const item = reportMojibake({ file, marker: mojibake.marker, severity: mojibake.severity });
+    if (mojibake.severity === "failure") failures.push(item);
+    else warnings.push(item);
   }
 }
 
@@ -168,6 +245,23 @@ for (const file of cssFiles) {
       code: "LARGE_STYLESHEET",
       message: `${rel} is ${lines} lines; verify styles are grouped by ownership boundary.`,
       file: rel,
+    });
+  }
+  warnings.push(...findDecorLayerWarnings(text, rel));
+}
+
+const projectCardPath = join(root, "src", "components", "ui", "ProjectCard.tsx");
+const projectDataPath = join(root, "src", "data", "projects.ts");
+if (existsSync(projectCardPath) && existsSync(projectDataPath)) {
+  const projectCard = readText(projectCardPath);
+  const projectData = readText(projectDataPath);
+  const rendersImage = /<img\b/.test(projectCard);
+  const hasLogoNormalization = /logo(?:Scale|ClassName|Fit|Offset|MaxWidth)|--logo-/.test(projectCard + projectData);
+  if (rendersImage && !hasLogoNormalization) {
+    warnings.push({
+      code: "PROJECT_CARD_NO_LOGO_NORMALIZATION",
+      message: "ProjectCard renders logos but no logoScale/logoClassName/logoFit metadata or --logo-* CSS variable was found; varied logo assets may appear visually inconsistent.",
+      file: "src/components/ui/ProjectCard.tsx",
     });
   }
 }

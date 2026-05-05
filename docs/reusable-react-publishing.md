@@ -44,6 +44,16 @@ for shared Header/Footer/SiteLayout.
   `src/styles/responsive.css`.
 - Variants such as button tone or footer tone should use modifier classes
   (`brand-button--dark`, `footer--caramel`) instead of inline `style` objects.
+- Remove scaffold placeholders such as `src/routes/HomePlaceholder.tsx` before
+  publishing.
+- Decorative images must live behind content with explicit layer rules. Use a
+  layout-owned decor layer or set decorative assets to `z-index: 0` and
+  `pointer-events: none`, with header/main/footer content above them.
+- Reusable logo/icon cards need normalization metadata when assets have
+  different viewBox or whitespace. Prefer `logoScale`, `logoClassName`,
+  `logoFit`, or `--logo-*` CSS variables over one-size-fits-all image rules.
+- Fix mojibake before shipping. Strings such as `�`, `챕`, `짤`, or `?셫` in
+  React/data files are publishing defects, not acceptable approximations.
 
 ## Anti-Patterns
 
@@ -54,6 +64,10 @@ for shared Header/Footer/SiteLayout.
 - CSS for all pages in one huge page stylesheet.
 - `index.css` containing hundreds of lines of rules instead of imports.
 - Inline style objects used for reusable variants that should be CSS classes.
+- Bootstrap placeholder routes left in `src/routes`.
+- Absolute decorative images with positive z-index above page content.
+- Project/logo cards that treat every logo asset as visually equivalent.
+- Mojibake or broken encoding in visible strings.
 - Large components with embedded data, layout, and repeated item markup mixed
   together.
 
@@ -68,3 +82,5 @@ React templates. It blocks the most expensive structural mistakes:
 - missing component/page stylesheet boundaries for multi-page React output
 - monolithic or oversized React files
 - monolithic or oversized CSS files
+- scaffold placeholders and mojibake text
+- warnings for suspicious decorative z-index and unnormalized logo cards
