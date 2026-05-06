@@ -5,7 +5,12 @@
   "description": "Section-unit publishing harness for design-to-code conversion (figma/spec source × react/html-static output).",
   "type": "module",
   "scripts": {
-    "test:gates": "node scripts/check-token-usage-html.mjs tests/fixtures/html-static/g4-pass.html tests/fixtures/html-static/g4-pass.css && node scripts/check-text-ratio-html.mjs tests/fixtures/html-static/g6-pass.html && bash scripts/test-strict-gates.sh"
+    "test:gates": "node scripts/check-token-usage-html.mjs tests/fixtures/html-static/g4-pass.html tests/fixtures/html-static/g4-pass.css && node scripts/check-text-ratio-html.mjs tests/fixtures/html-static/g6-pass.html && bash scripts/test-strict-gates.sh",
+    "test:verify": "node --test tests/verify-publishing-complete.test.mjs",
+    "test:reusability": "node --test tests/check-react-reusability.test.mjs",
+    "test:write-protection": "node --test tests/check-write-protection.test.mjs",
+    "test:baseline-assets": "node --test tests/export-baseline-assets.test.mjs",
+    "test:completion": "node --test tests/assert-completion-contract.test.mjs"
   },
   "engines": {
     "node": ">=18"

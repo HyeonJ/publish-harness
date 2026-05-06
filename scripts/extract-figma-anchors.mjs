@@ -137,15 +137,40 @@ function hasMeasurableBbox(abs) {
   return abs && abs.width > 0 && abs.height > 0;
 }
 
+const VISUAL_REQUIRED_NAME_PATTERN = /pizza|bacon|egg|food|hero|image|photo|portrait|product|cover|illustration|illu|mascot|logo|logotype|brand|identity|campaign|badge|icon|mark|wordmark/i;
+const LOGO_CARD_CONTEXT_PATTERN = /project[-_\s]*card|logo|logotype|brand|identity|campaign|wordmark|mark/i;
+
+function isLogoCardContext(node, parents) {
+  return [node, ...parents].some((item) => LOGO_CARD_CONTEXT_PATTERN.test(item?.name || ""));
+}
+
+function isVisualRequired(node, role, parents = []) {
+  if (![ROLES.DECORATIVE, ROLES.UNKNOWN, ROLES.PRIMARY_MEDIA].includes(role)) return false;
+  const abs = node.absoluteBoundingBox;
+  if (!hasMeasurableBbox(abs) || !hasMeasurableBbox(sectionAbs)) return false;
+  const sectionArea = sectionAbs.width * sectionAbs.height;
+  const nodeArea = abs.width * abs.height;
+  const areaRatio = sectionArea > 0 ? nodeArea / sectionArea : 0;
+  if (isLogoCardContext(node, parents)) return true;
+  return areaRatio >= 0.015 || VISUAL_REQUIRED_NAME_PATTERN.test(node.name || "");
+}
+
 const anchors = [];
 // N2 가드 (c): sibling name collision — 같은 id 면 -1, -2 suffix 자동 부여.
 //   회고 §F3-(c): "2025"×2 / "2024"×2 같은 이름 collision 으로 about-founder 워커가
 //   수동 분리. 추출 단계에서 자동 처리.
 const idCounter = new Map();
+const usedIds = new Set();
 function uniqueId(baseId) {
-  const count = idCounter.get(baseId) || 0;
+  let count = idCounter.get(baseId) || 0;
+  let candidate = count === 0 ? baseId : `${baseId}-${count + 1}`;
+  while (usedIds.has(candidate)) {
+    count += 1;
+    candidate = `${baseId}-${count + 1}`;
+  }
   idCounter.set(baseId, count + 1);
-  return count === 0 ? baseId : `${baseId}-${count + 1}`;
+  usedIds.add(candidate);
+  return candidate;
 }
 
 function walk(node, depth = 0, parents = []) {
@@ -155,15 +180,18 @@ function walk(node, depth = 0, parents = []) {
     const baseId = depth === 0
       ? `${opts.section}/root`
       : `${opts.section}/${slugify(node.name || `node-${node.id}`)}`;
+    const baseRequired = [
+      ROLES.SECTION_ROOT,
+      ROLES.PRIMARY_HEADING,
+      ROLES.PRIMARY_CTA,
+      ROLES.PRIMARY_MEDIA,
+    ].includes(role);
+    const visualRequired = isVisualRequired(node, role, parents);
     anchors.push({
       id: uniqueId(baseId),
       role,
-      required: [
-        ROLES.SECTION_ROOT,
-        ROLES.PRIMARY_HEADING,
-        ROLES.PRIMARY_CTA,
-        ROLES.PRIMARY_MEDIA,
-      ].includes(role),
+      required: baseRequired || visualRequired,
+      visualRequired,
       figmaNodeId: node.id,
       bbox: {
         x: Math.round(abs.x - sectionAbs.x),

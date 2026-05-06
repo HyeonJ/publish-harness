@@ -41,6 +41,10 @@ function walk(dir, out = []) {
   return out;
 }
 
+function uniqueFiles(files) {
+  return [...new Set(files.filter(Boolean))];
+}
+
 function lineCount(text) {
   return text ? text.split(/\r?\n/).length : 0;
 }
@@ -88,12 +92,20 @@ function parseNumericZIndex(cssBlock) {
 function findDecorLayerWarnings(cssText, rel) {
   const warnings = [];
   const blockPattern = /([^{]*(?:decor|ornament|floating|egg|pizza)[^{]*)\{([^}]*)\}/gi;
+  const hasStackingContext = /isolation\s*:\s*isolate/.test(cssText);
   let match;
   while ((match = blockPattern.exec(cssText))) {
     const selector = match[1].trim();
     const body = match[2];
     if (!/position\s*:\s*absolute/.test(body)) continue;
     const z = parseNumericZIndex(body);
+    if (z === null) {
+      warnings.push({
+        code: "DECOR_LAYER_NO_Z_INDEX",
+        message: `${rel} selector "${selector}" looks like an absolute decorative layer but has no explicit z-index. Decorative layer order must be intentional.`,
+        file: rel,
+      });
+    }
     if (z !== null && z > 0) {
       warnings.push({
         code: "DECOR_LAYER_ABOVE_CONTENT",
@@ -105,6 +117,34 @@ function findDecorLayerWarnings(cssText, rel) {
       warnings.push({
         code: "DECOR_LAYER_POINTER_EVENTS",
         message: `${rel} selector "${selector}" looks decorative but does not set pointer-events: none.`,
+        file: rel,
+      });
+    }
+    if (!hasStackingContext && z !== null && z >= 0) {
+      warnings.push({
+        code: "DECOR_LAYER_NO_STACKING_CONTEXT",
+        message: `${rel} selector "${selector}" uses non-negative z-index without an isolation context in this stylesheet. The page shell should define isolation: isolate so decor cannot cover content unexpectedly.`,
+        file: rel,
+      });
+    }
+    if (/display\s*:\s*none/.test(body) || /visibility\s*:\s*hidden/.test(body) || /opacity\s*:\s*0(?:[;\s]|$)/.test(body)) {
+      warnings.push({
+        code: "DECOR_LAYER_HIDDEN",
+        message: `${rel} selector "${selector}" looks decorative but is hidden. Decorative assets must be behind content, not removed from the visual result.`,
+        file: rel,
+      });
+    }
+    if (z !== null && z < -10) {
+      warnings.push({
+        code: "DECOR_LAYER_TOO_FAR_BEHIND",
+        message: `${rel} selector "${selector}" uses z-index ${z}. Decorative assets should remain visible behind content, not buried behind the page background.`,
+        file: rel,
+      });
+    }
+    if (/transform\s*:[^;}]*translate(?:3d|X|Y)?\([^)]*-\d{3,}/.test(body)) {
+      warnings.push({
+        code: "DECOR_LAYER_OFFSCREEN",
+        message: `${rel} selector "${selector}" appears translated far offscreen. Decorative assets must remain visible when present in Figma.`,
         file: rel,
       });
     }
@@ -145,8 +185,55 @@ function findContentFitControlWarnings(cssText, rel) {
   return warnings;
 }
 
+function findLogoMediaWarnings(cssText, rel) {
+  const warnings = [];
+  const blockPattern = /([^{}]+)\{([^}]*)\}/g;
+  let match;
+  while ((match = blockPattern.exec(cssText))) {
+    const selector = match[1].trim();
+    const body = match[2];
+    const normalized = `${selector} ${body}`;
+    const looksLikeLogoMedia =
+      /(?:logo|brand|mark|wordmark|project-card|case-card|work-card)/i.test(normalized) &&
+      /(?:img|image|media|thumb|visual|asset)/i.test(normalized);
+    if (!looksLikeLogoMedia) continue;
+
+    const hasObjectFitContain = /object-fit\s*:\s*contain/.test(body);
+    const hasFitBox =
+      /(?:width|height|max-width|max-height|aspect-ratio)\s*:\s*(?:var\(--logo-|var\(--mark-|clamp\(|min\(|max\(|\d)/.test(body) ||
+      /(?:inline-size|block-size)\s*:/.test(body);
+    const usesAutoHeight = /height\s*:\s*auto/.test(body);
+
+    if (usesAutoHeight && !/max-height\s*:/.test(body) && !/block-size\s*:/.test(body)) {
+      warnings.push({
+        code: "LOGO_MEDIA_HEIGHT_AUTO",
+        message: `${rel} selector "${selector}" uses height:auto for logo/card media without a max-height or block-size. Repeated logo cards should size marks from a fit box, not natural asset ratio.`,
+        file: rel,
+      });
+    }
+
+    if (!hasFitBox) {
+      warnings.push({
+        code: "LOGO_MEDIA_NO_FIT_BOX",
+        message: `${rel} selector "${selector}" looks like reusable logo/card media but has no explicit fit box. Use bbox-driven width/height/max-size or --logo-* variables.`,
+        file: rel,
+      });
+    }
+
+    if (!hasObjectFitContain && /(?:img|image|media|thumb|visual|asset)/i.test(selector)) {
+      warnings.push({
+        code: "LOGO_MEDIA_NO_OBJECT_FIT",
+        message: `${rel} selector "${selector}" looks like logo/card media but does not declare object-fit: contain.`,
+        file: rel,
+      });
+    }
+  }
+  return warnings;
+}
+
 const opts = parseArgs(process.argv.slice(2));
 const root = process.cwd();
+const strictWarnings = process.env.G12_STRICT === "1" || process.env.STRICT === "1";
 const progress = existsSync(join(root, "progress.json"))
   ? JSON.parse(readText(join(root, "progress.json")))
   : null;
@@ -257,7 +344,11 @@ for (const file of sourceTextFiles) {
   }
 }
 
-const cssFiles = walk(join(root, "src", "styles")).filter((file) => /\.css$/.test(file));
+const cssFiles = uniqueFiles([
+  ...walk(join(root, "src", "styles")).filter((file) => /\.css$/.test(file)),
+  ...walk(opts.dir || "").filter((file) => /\.css$/.test(file)),
+  ...walk(join(root, "src", "components")).filter((file) => /\.css$/.test(file)),
+]);
 for (const file of cssFiles) {
   const text = readText(file);
   const lines = lineCount(text);
@@ -283,6 +374,17 @@ for (const file of cssFiles) {
   }
   warnings.push(...findDecorLayerWarnings(text, rel));
   warnings.push(...findContentFitControlWarnings(text, rel));
+  const logoMediaWarnings = findLogoMediaWarnings(text, rel);
+  for (const item of logoMediaWarnings) {
+    if (item.code === "LOGO_MEDIA_HEIGHT_AUTO" || item.code === "LOGO_MEDIA_NO_FIT_BOX") {
+      failures.push({
+        ...item,
+        message: `${item.message} Repeated logo/card media must be normalized before publishing.`,
+      });
+    } else {
+      warnings.push(item);
+    }
+  }
 }
 
 const projectCardPath = join(root, "src", "components", "ui", "ProjectCard.tsx");
@@ -291,19 +393,30 @@ if (existsSync(projectCardPath) && existsSync(projectDataPath)) {
   const projectCard = readText(projectCardPath);
   const projectData = readText(projectDataPath);
   const rendersImage = /<img\b/.test(projectCard);
-  const hasLogoNormalization = /logo(?:Scale|ClassName|Fit|Offset|MaxWidth)|--logo-/.test(projectCard + projectData);
+  const combined = projectCard + projectData;
+  const hasOnlyClassName = /logoClassName/.test(combined);
+  const hasLogoNormalization = /logo(?:Scale|Fit|Offset|MaxWidth|MaxHeight|Width|Height|BBox|Box|W|H)\b|--logo-(?:w|h|width|height|max-width|max-height|scale|fit|box)|logo\s*:\s*\{/.test(combined);
   if (rendersImage && !hasLogoNormalization) {
-    warnings.push({
+    failures.push({
       code: "PROJECT_CARD_NO_LOGO_NORMALIZATION",
-      message: "ProjectCard renders logos but no logoScale/logoClassName/logoFit metadata or --logo-* CSS variable was found; varied logo assets may appear visually inconsistent.",
+      message: `ProjectCard renders logos but no bbox/size normalization metadata such as logoScale, logoFit, logoWidth/logoHeight, logoBBox, or --logo-* variables was found.${hasOnlyClassName ? " logoClassName alone is not enough because it can still be ad hoc percentage sizing." : ""} Repeated logo/card media must be normalized before publishing.`,
       file: "src/components/ui/ProjectCard.tsx",
     });
   }
 }
 
+if (strictWarnings && warnings.length) {
+  failures.push(...warnings.map((warning) => ({
+    ...warning,
+    code: `STRICT_${warning.code}`,
+    message: `${warning.message} (strict warning treated as failure)`,
+  })));
+}
+
 const result = {
   status: failures.length ? "FAIL" : "PASS",
   pageCount,
+  strictWarnings,
   failures,
   warnings,
 };

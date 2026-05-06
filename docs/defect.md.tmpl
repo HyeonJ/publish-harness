@@ -16,6 +16,27 @@ future agents; fix encoding problems before adding screenshots or comments.
 - Verification:
 - Harness follow-up:
 
+## G1 Failure Categories
+
+Use these categories when strict visual regression reports them:
+
+- `required-anchor-missing`: add exact `data-anchor` values from the manifest.
+- `decorative-flow-drift`: move visible decor from normal flow to a root/page
+  decor layer.
+- `media-position-drift`: size or place a primary image/media element from its
+  manifest bbox.
+- `control-text-anchor-mismatch`: separate outer control anchors from inner text
+  label anchors.
+- `footer-wordmark-target`: attach the anchor to the full-size wordmark element.
+- `repeated-stack-height-drift`: align repeated exhibit/card image heights to
+  manifest bbox ratios.
+- `repeated-logo-scale-drift`: normalize repeated brand/logo card media to the
+  Figma bbox or optical-size metadata.
+- `section-height-explosion`: reduce padding/stacking so the section bbox
+  matches Figma.
+- `text-metric-mismatch`: fix font loading, font-size, line-height, or text
+  anchor target.
+
 ## Common Visual Defects To Check
 
 ### Decorative Layering
@@ -24,12 +45,33 @@ future agents; fix encoding problems before adding screenshots or comments.
 - Decorative assets should use `pointer-events: none`.
 - Prefer a dedicated decor layer in layout components.
 - Content layers such as header/main/footer should have explicit stacking order.
+- If the Figma asset overlaps nav/main or has negative y, it belongs in a
+  root/page decor layer rather than normal flow.
+
+### Anchor Targeting
+
+- Required anchors from `baselines/<Page>/anchors-*.json` must exist exactly in
+  the DOM.
+- Nav/button controls often need separate anchors for the outer frame and inner
+  text label.
+- Footer brand anchors should be on the full-size wordmark, not an inner span.
+
+### Repeated Image Stacks
+
+- Case-study/exhibit images should follow manifest bbox order and height.
+- Avoid `height:auto` when natural image ratio causes cumulative y drift.
+- If later repeated anchors drift more than earlier ones, check per-item height
+  and gap accumulation.
 
 ### Logo And Icon Normalization
 
 - Logos with different viewBox/whitespace need per-asset normalization.
 - Use metadata such as `logoScale`, `logoClassName`, `logoFit`, or CSS variables
   like `--logo-scale`.
+- Put repeated logos in a deliberate fit box and render the mark with
+  `object-fit: contain`.
+- Avoid relying only on `width: 100%; height: auto`; natural asset ratios often
+  make repeated brand cards look optically inconsistent.
 - Compare optical size against Figma, not only CSS box size.
 
 ### Hug-Content Controls

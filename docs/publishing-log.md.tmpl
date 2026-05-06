@@ -51,9 +51,28 @@ checked, say so.
 | Lint | | | | |
 | Typecheck | | | | |
 | Build | | | | |
-| Quality Home | | | | |
-| Quality About | | | | |
-| Quality Work | | | | |
+| Quality `<page-or-route>` | `bash scripts/measure-quality.sh <page> <dir>` | | | Add one row per discovered route/page. |
+| Final verifier | `node scripts/verify-publishing-complete.mjs` | | | Required before reporting completion. |
+
+## Anchor Coverage
+
+For figma mode, copy the G1 L2 coverage from `tests/quality/<page>.json`.
+`requiredMatched` must equal `requiredTotal` before completion.
+
+| Page/section | Viewport | anchorsMatched / anchorsTotal | requiredMatched / requiredTotal | G1 categories | Notes |
+|---|---|---:|---:|---|---|
+| Home | desktop | | | | |
+
+## Visual Drift Follow-Up
+
+When G1 fails, separate L1 pixel diff from L2 anchor drift. Fix in this order:
+required anchors, decorative flow/layering, wrong anchor target, repeated image
+stack drift, section height explosion, typography/text metrics, then remaining
+pixel diff.
+
+| Page/section | L1 diff % | First L2 failure | Category | Fix plan | Result |
+|---|---:|---|---|---|---|
+| | | | | | |
 
 ## Progress State
 

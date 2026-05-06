@@ -2,6 +2,33 @@
 
 ## 4 Phase
 
+Quality gate order is shared by Claude and Codex workers:
+`G10 -> G4 -> G11 -> G12 -> G5 -> G6/G8 -> G7 -> G1`.
+G1 visual regression runs last because it compares the finished preview against
+the baseline after static, structural, semantic, and content checks have run.
+Final completion must run `node scripts/assert-completion-contract.mjs`;
+missing gate results are failures. If `.publish-harness/INCOMPLETE.json`
+exists, the final response must begin with
+`BLOCKED/INCOMPLETE: publish-harness completion contract failed.` Every
+non-skipped page/section in
+`progress.json` must be `done` with a matching `tests/quality/<section>.json`;
+route-level build/lint/smoke checks do not replace per-section gates.
+Blocked/incomplete is an intermediate failure state, not a final answer. Do not
+end the turn in that state unless an external blocker prevents all further local
+fixes or the user explicitly asks you to stop. Otherwise keep diagnosing,
+fixing, rerunning gates, and updating logs until the completion contract passes.
+G7 Lighthouse is required by default; `--allow-g7-skip` is an explicit local
+exception, not the normal publishing path.
+Large or meaningfully named Figma decorative assets are extracted as
+`visualRequired` anchors, so hiding or omitting them is a G1 failure.
+
+Empty-directory Figma React publishing uses the harness default strategy:
+reusable React structure, Figma asset export, tokenized CSS, per-route
+baselines/anchors, per-route quality gates, and final verifier. Workers should
+not ask the user to choose this strategy; they should proceed unless required
+credentials/assets are unavailable or the request explicitly asks for a
+different output style.
+
 ```
 [Phase 1] 부트스트랩        (1회, bootstrap.sh 한 줄, 모드 선택)
 [Phase 2] 분해              (페이지/컴포넌트 카탈로그 시작 시, 오케 직접)
@@ -213,10 +240,10 @@ spec 모드에서는 `figma-screenshots/` 디렉토리를 생성하지 않는다
                    · --force 시 anchor diff report 출력
                    · 캐싱: figma lastModified / spec mtime
 4.2 품질 게이트   → scripts/measure-quality.sh
-                   · 실행 순서 fail-fast: G10 → G4 → G11 → G5 → G6/G8 → G1 → G7
+                   · 실행 순서 fail-fast: G10 → G4 → G11 → G12 → G5 → G6/G8 → G7 → G1
                    · G1 strict default + viewport 자동 감지
                    · G11 escape budget (정적 + Playwright runtime sweep + dependency closure)
-                   · LITE=1 env 로 옵트아웃 (개발 로컬만)
+                   · Figma final quality에서 LITE=1 옵트아웃 금지
 ```
 
 **워커 반환 처리**:
@@ -320,4 +347,10 @@ feat(section): {page}-{section} 구현 (G4-G8 PASS, opus-assist)
 | FIGMA_TOKEN 미설정 | env var 없음 | Windows PowerShell User scope / Unix export |
 | G11 FAIL | layout escape 남발 | flex/grid 재구성. 데코는 `data-allow-escape="<enum>"` (≤2회) |
 | G1 L2 anchor missing | manifest required 박지 않음 | stdout missing 리스트 따라 추가 |
+| G1 anchorsMatched=0 | `data-anchor` DOM 반영 단계 누락 | manifest를 읽고 required anchor부터 정확히 추가 |
+| G1 decorative-flow-drift | Figma decor를 normal flow에 넣음 | root/page decor layer + z-index/pointer-events 정책 적용 |
+| G1 footer-wordmark-target | 대형 wordmark anchor를 작은 span에 붙임 | 실제 full-size wordmark element에 anchor 이동 |
+| G1 repeated-stack-height-drift | 반복 이미지 높이 오차 누적 | manifest bbox height/ratio 기준으로 image/object-fit 조정 |
+| G1 section-height-explosion | section current height가 Figma보다 과대 | padding/card stacking 재조정 |
 | G1 L2 bbox delta | element 위치/크기 어긋남 | width/height/margin 점검 (escape budget 추가는 G11 으로 차단) |
+| G1 media pixel drift | 별도 asset export와 baseline 픽셀 불일치 | `export-baseline-assets.mjs`로 baseline crop asset 생성 |

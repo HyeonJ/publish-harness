@@ -16,6 +16,53 @@ model: sonnet
 4. `docs/token-audit.md` — 사용 가능한 토큰 인벤토리
 5. **spec 모드 추가**: `docs/components-spec.md` — 컴포넌트 API 명세 (prop/variant/state/token/예시/Don't)
 6. `docs/reusable-react-publishing.md` — React 재사용성/라우팅/컴포넌트 분리 기준
+7. `docs/windows-command-policy.md` — Windows PowerShell npm/npx command policy
+8. `docs/defect.md` — visual defects found during screenshot review
+
+React reusable output checklist:
+- Completion contract: do not report completed/done/finished/implemented/
+  published or "완료", "구현 완료", "퍼블리싱 완료", "반영했습니다", and do not
+  create a completion commit unless `node scripts/assert-completion-contract.mjs`
+  exits 0. Build/lint/typecheck/route-200 success is not completion. If
+  `.publish-harness/INCOMPLETE.json` exists or the contract fails, the final
+  response must begin with `BLOCKED/INCOMPLETE: publish-harness completion
+  contract failed.` and include the verifier failure summary. Blocked/incomplete
+  is an intermediate failure state, not a final answer. Do not end the turn in
+  that state unless an external blocker prevents all further local fixes or the
+  user explicitly asks you to stop. Otherwise keep diagnosing, fixing, rerunning
+  gates, and updating logs until the completion contract passes.
+- Empty-directory Figma React publishing already has a fixed strategy:
+  reusable React structure + Figma assets + tokenized CSS + per-route
+  baselines/anchors + per-route quality gates + final verifier. Do not ask the
+  user to approve that strategy unless credentials/assets are missing or the
+  user explicitly requested a different output style.
+- Remove `src/routes/HomePlaceholder.tsx` before finishing.
+- In figma mode, read `baselines/<Page>/anchors-desktop.json` and render every
+  required anchor with the exact `data-anchor` value. Shared layout components
+  should accept `pageId` for `Home/root`, `Home/nav`, `Home/footer`, etc.
+- Keep decorative assets behind content with `pointer-events: none`.
+- Decorative assets that overlap nav/main or have negative Figma y belong in a
+  root/page decor layer, not normal flow. Use `position:absolute; z-index:0;
+  pointer-events:none` and put nav/main/footer above the decor layer.
+- Separate outer control anchors from inner label text anchors for nav/buttons.
+- Put footer wordmark anchors on the full-size wordmark element, not on a small
+  nested span.
+- Repeated exhibit/image stacks must follow manifest bbox order and bbox
+  height/ratio instead of relying only on asset array order or `height:auto`.
+- Normalize reusable logo/icon cards with `logoScale`, `logoClassName`,
+  `logoFit`, `logoWidth`, `logoHeight`, `logoBBox`, or `--logo-*` CSS variables
+  when assets differ. `logoClassName` alone is not normalization. The card media
+  frame can be uniform, but the visible mark must be sized from the Figma bbox
+  or an optical-size token, not only `width: 100%; height: auto`. Use an
+  explicit fit box plus `object-fit: contain` and per-item overrides when marks
+  have different whitespace or intended visual scale.
+- Preserve Figma hug-content controls. Pills, chips, tags, badges, and small
+  labels should use `inline-flex`, `width: fit-content`, and start alignment
+  unless the Figma node is explicitly full width.
+- Maintain `docs/defect.md` when screenshot review finds visual issues that
+  automated gates missed.
+- On Windows PowerShell, run `npm.cmd` and `npx.cmd` instead of bare `npm` or
+  `npx`.
 
 ## 입력 (오케스트레이터가 prompt로 전달)
 
@@ -441,6 +488,28 @@ Figma 기준 `prepare-baseline.mjs` 또는 사람이 승인한 handoff baseline 
 ```bash
 bash scripts/measure-quality.sh <section_name> <section-dir>
 ```
+
+Gate order is shared by Claude and Codex workers:
+
+```text
+G10 -> G4 -> G11 -> G12 -> G5 -> G6/G8 -> G7 -> G1
+```
+
+G1 visual regression runs last. It compares the finished preview against the
+Figma/spec baseline after static, structural, semantic, content, and Lighthouse
+checks have run.
+
+Before reporting completion, run `node scripts/verify-publishing-complete.mjs`.
+Missing quality JSON, missing G1/G12 results, missing Figma baselines/anchors,
+scaffold placeholders, incomplete `docs/defect.md` entries, and non-done
+progress pages/sections are failures. Building multiple routes in one pass does
+not satisfy completion until every discovered page/section has its own
+`tests/quality/<section>.json` and recorded gate result. G7 Lighthouse is
+required by default; missing dependencies, missing dev server, or missing
+`/__preview/<section>` route are quality-gate failures. `--allow-g7-skip` is
+only an explicit final-verifier local exception after the failed quality result
+is recorded and documented. Do not replace per-route gates with a synthetic
+aggregate section such as `site-pages`.
 
 **섹션 격리 (권장)** — 공유 디렉토리(예: `src/routes`, `src/components/ui`)에서 타 섹션이 이미 존재하면 `--files` 로 이번 섹션 파일만 판정하도록 격리:
 

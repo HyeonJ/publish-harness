@@ -25,6 +25,7 @@ let _PNG_CONSTRUCTOR;
 function resizePngNearest(srcPng, newWidth, newHeight) {
   if (!_PNG_CONSTRUCTOR) _PNG_CONSTRUCTOR = srcPng.constructor;
   const dst = new _PNG_CONSTRUCTOR({ width: newWidth, height: newHeight });
+  ensurePngData(dst, "resized baseline");
   const ratioX = srcPng.width / newWidth;
   const ratioY = srcPng.height / newHeight;
   for (let y = 0; y < newHeight; y++) {
@@ -40,6 +41,20 @@ function resizePngNearest(srcPng, newWidth, newHeight) {
     }
   }
   return dst;
+}
+
+function ensurePngData(png, label) {
+  if (!png || typeof png.width !== "number" || typeof png.height !== "number") {
+    throw new Error(`${label} PNG is invalid`);
+  }
+  const required = png.width * png.height * 4;
+  if (!png.data) {
+    png.data = Buffer.alloc(required);
+  }
+  if (png.data.length < required) {
+    throw new Error(`${label} PNG data buffer is too small (${png.data.length} < ${required})`);
+  }
+  return png;
 }
 
 // ---------- 인자 ----------
@@ -84,6 +99,70 @@ if (opts.help) {
 }
 
 if (!opts.section) { console.error("usage: --section <id>"); process.exit(2); }
+
+function unique(values) {
+  return [...new Set(values.filter(Boolean))];
+}
+
+function anchorName(id) {
+  return String(id || "").split("/").pop() || "";
+}
+
+function classifyAnchorDelta({ anchor, measured, dx, dy, figmaW, figmaH }) {
+  const id = anchor.id || "";
+  const name = anchorName(id);
+  const role = anchor.role || "";
+  const categories = [];
+  const widthRatio = figmaW > 0 ? measured.w / figmaW : 1;
+  const heightRatio = figmaH > 0 ? measured.h / figmaH : 1;
+
+  if (/alex-carter-2|wordmark|footer-brand|footer-logo/i.test(id) && widthRatio < 0.35) {
+    categories.push("footer-wordmark-target");
+  }
+  if (/project-section|more-projects|work-more|footer|section/i.test(name) && heightRatio > 2) {
+    categories.push("section-height-explosion");
+  }
+  if ((role === ROLES.DECORATIVE || role === ROLES.PRIMARY_MEDIA || /image|pizza|egg|bacon|food|decor/i.test(id)) && dy > 80) {
+    categories.push(anchor.bbox?.y < 0 ? "decorative-flow-drift" : "media-position-drift");
+  }
+  if ((role === ROLES.TEXT_BLOCK || measured.semantic) && Math.abs(measured.h - figmaH) > 12 && dy <= 24) {
+    categories.push("text-metric-mismatch");
+  }
+  if (/nav|label|work|about|alex-carter/i.test(id) && dy <= 24 && Math.abs(measured.h - figmaH) > 12) {
+    categories.push("control-text-anchor-mismatch");
+  }
+  if (
+    /(?:logo|brand|mark|wordmark|project-card)/i.test(id) &&
+    (widthRatio < 0.75 || widthRatio > 1.25 || heightRatio < 0.75 || heightRatio > 1.25)
+  ) {
+    categories.push("repeated-logo-scale-drift");
+  }
+
+  return unique(categories);
+}
+
+function summarizeAnchorDeltas(deltas) {
+  const categories = [];
+  const topDeltas = [...deltas]
+    .sort((a, b) => Math.max(b.dx, b.dy) - Math.max(a.dx, a.dy))
+    .slice(0, 10);
+
+  const exhibitDeltas = deltas.filter((d) => /exhibit|image-\d+|project-card/i.test(d.id) && Math.abs(d.dy) > 24);
+  if (exhibitDeltas.length >= 3) {
+    categories.push("repeated-stack-height-drift");
+  }
+
+  const logoScaleDeltas = deltas.filter((d) => (d.categories || []).includes("repeated-logo-scale-drift"));
+  if (logoScaleDeltas.length >= 2) {
+    categories.push("repeated-logo-scale-drift");
+  }
+
+  categories.push(...deltas.flatMap((d) => d.categories || []));
+  return {
+    categories: unique(categories),
+    topDeltas,
+  };
+}
 
 // 모드 분기: --strict 있고 --baseline-dir 있으면 strict, 아니면 lite (기존 동작)
 const STRICT = opts.strict && opts["baseline-dir"];
@@ -383,6 +462,7 @@ async function evaluateViewport(browser, plan, url) {
 
       let maxDelta = 0;
       let bboxFail = null;
+      const anchorDeltas = [];
       for (const a of manifest.anchors) {
         const m = bboxes[a.id];
         if (!m) continue;
@@ -420,6 +500,23 @@ async function evaluateViewport(browser, plan, url) {
         const dx = Math.abs(measuredRelX - figmaNormalizedX);
         const dy = Math.abs(measuredRelY - figmaNormalizedY);
         maxDelta = Math.max(maxDelta, dx, dy);
+        const categories = classifyAnchorDelta({
+          anchor: a,
+          measured: m,
+          dx,
+          dy,
+          figmaW: figmaNormalizedW,
+          figmaH: figmaNormalizedH,
+        });
+        anchorDeltas.push({
+          id: a.id,
+          role: a.role,
+          dx: Number(dx.toFixed(1)),
+          dy: Number(dy.toFixed(1)),
+          measured: { w: Number(m.w.toFixed(1)), h: Number(m.h.toFixed(1)) },
+          figma: { w: Number(figmaNormalizedW.toFixed(1)), h: Number(figmaNormalizedH.toFixed(1)) },
+          categories,
+        });
         if (dx > tolX || dy > tolY) {
           // first failure only — mirrors validateLegacy first-violation pattern
           bboxFail = bboxFail || `${a.id} delta x=${dx.toFixed(0)} y=${dy.toFixed(0)} tol(${tolX.toFixed(0)},${tolY.toFixed(0)}) [scale=${scale.toFixed(3)}]`;
@@ -433,6 +530,7 @@ async function evaluateViewport(browser, plan, url) {
           maskRects.push({ x: m.x, y: m.y, w: m.w, h: m.h });
         }
       }
+      const deltaSummary = summarizeAnchorDeltas(anchorDeltas);
       l2 = {
         status: rule.pass && !bboxFail ? "PASS" : "FAIL",
         anchorsMatched: matched.size,
@@ -442,13 +540,20 @@ async function evaluateViewport(browser, plan, url) {
         maxDeltaPx: Math.round(maxDelta),
         normalize: normalizeMeta,
         reason: rule.pass ? bboxFail : rule.reason,
+        diagnostics: {
+          categories: unique([
+            ...(rule.pass ? [] : [rule.reason?.startsWith("required anchor missing") ? "required-anchor-missing" : "optional-anchor-missing"]),
+            ...deltaSummary.categories,
+          ]),
+          topDeltas: deltaSummary.topDeltas,
+        },
       };
     }
 
     // L1 측정 (mask 적용)
     const buf = await page.screenshot({ fullPage: true });
-    const cur = PNG.sync.read(buf);
-    let base = PNG.sync.read(readFileSync(png));
+    const cur = ensurePngData(PNG.sync.read(buf), "current screenshot");
+    let base = ensurePngData(PNG.sync.read(readFileSync(png)), "baseline");
     // B-1b L1 resize: dimension mismatch 시 baseline 을 current 폭/높이로 nearest-neighbor resize.
     // figma export (scale=2) 와 preview viewport (1×) 차이 자동 흡수 → 워커 self-capture 회피 동기 제거.
     // % budget 안에서 antialiasing 차이 흡수.
@@ -458,6 +563,7 @@ async function evaluateViewport(browser, plan, url) {
       const heightAfterRatio = Math.round(base.height * (cur.width / base.width));
       // height 도 current 와 일치시키기 위해 추가 resize (stretch — 비율 보존 X 단순화)
       base = resizePngNearest(base, cur.width, cur.height);
+      ensurePngData(base, "resized baseline");
       resizeApplied = true;
     }
     // mask 면적 검사 — section 면적의 35% 초과 시 FAIL
@@ -484,7 +590,7 @@ async function evaluateViewport(browser, plan, url) {
         }
       }
     }
-    const diff = new PNG({ width: cur.width, height: cur.height });
+    const diff = ensurePngData(new PNG({ width: cur.width, height: cur.height }), "diff");
     const dp = pixelmatch(cur.data, base.data, diff.data, cur.width, cur.height, { threshold: 0.1 });
     const dpct = (dp / totalArea) * 100;
     mkdirSync(opts["diff-dir"], { recursive: true });

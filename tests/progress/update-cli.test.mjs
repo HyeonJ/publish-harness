@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { mkdtempSync, readFileSync, existsSync, writeFileSync as fsWrite } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -57,4 +57,29 @@ test('set-section direct status update', () => {
   run(dir, ['set-section', '--name', 'Button', '--status', 'skipped']);
   const obj = JSON.parse(readFileSync(join(dir, 'progress.json'), 'utf8'));
   assert.equal(obj.sections[0].status, 'skipped');
+});
+
+test('parallel add-section commands keep progress.json valid', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'pu-'));
+  run(dir, ['init', '--name', 'demo', '--mode', 'figma', '--template', 'vite-react-ts']);
+  run(dir, ['add-page', '--name', 'home', '--route', '/', '--node-id', '1:1']);
+
+  const children = Array.from({ length: 8 }, (_, index) => new Promise((resolvePromise) => {
+    const child = spawn('node', [
+      SCRIPT,
+      'add-section',
+      '--name', `section-${index}`,
+      '--page', 'home',
+      '--kind', 'section',
+    ], { cwd: dir, stdio: ['ignore', 'pipe', 'pipe'] });
+    let stderr = '';
+    child.stderr.on('data', (chunk) => { stderr += chunk; });
+    child.on('exit', (code) => resolvePromise({ code, stderr }));
+  }));
+
+  const results = await Promise.all(children);
+  assert.deepEqual(results.map((r) => r.code), Array(8).fill(0), JSON.stringify(results));
+  const obj = JSON.parse(readFileSync(join(dir, 'progress.json'), 'utf8'));
+  assert.equal(obj.sections.length, 8);
+  assert.equal(obj.pages[0].sections.length, 8);
 });

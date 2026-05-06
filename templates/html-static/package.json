@@ -5,13 +5,19 @@
   "scripts": {
     "dev": "serve -l 5173 public",
     "lint": "eslint public",
-    "lint:fix": "eslint public --fix"
+    "lint:fix": "eslint public --fix",
+    "quality": "bash scripts/measure-quality.sh",
+    "verify:gates": "node scripts/verify-publishing-complete.mjs",
+    "verify:publishing": "node scripts/assert-completion-contract.mjs",
+    "complete:publishing": "node scripts/assert-completion-contract.mjs"
   },
   "devDependencies": {
     "serve": "^14.2.4",
     "eslint": "^8.57.0",
     "@html-eslint/parser": "^0.25.0",
     "@html-eslint/eslint-plugin": "^0.25.0",
+    "@lhci/cli": "^0.14.0",
+    "lighthouse": "^12.2.1",
     "node-html-parser": "^6.1.13"
   }
 }

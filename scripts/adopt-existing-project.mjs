@@ -64,7 +64,7 @@ const cwd = process.cwd();
 const harnessDir = resolve(opts["harness-dir"] || process.env.HARNESS_DIR || join(__dirname, ".."));
 const packagePath = join(cwd, "package.json");
 const packageName = existsSync(packagePath)
-  ? JSON.parse(readFileSync(packagePath, "utf8")).name
+  ? JSON.parse(readFileSync(packagePath, "utf8").replace(/^\uFEFF/, "")).name
   : null;
 const projectName = opts["project-name"] || packageName || cwd.split(/[\\/]/).filter(Boolean).at(-1);
 const figmaUrl = opts["figma-url"] || "";
@@ -87,7 +87,9 @@ const scripts = [
   "_lib/text-ratio-judge.mjs",
   "_lib/walk.mjs",
   "adopt-existing-project.mjs",
+  "analyze-page-structure.mjs",
   "assemble-page-preview.mjs",
+  "assert-completion-contract.mjs",
   "check-layout-escapes.mjs",
   "check-legacy-additions.mjs",
   "check-react-reusability.mjs",
@@ -99,8 +101,11 @@ const scripts = [
   "check-write-protection.mjs",
   "discover-figma-pages.mjs",
   "doctor.sh",
+  "extract-tokens.sh",
+  "_extract-tokens-analyze.mjs",
   "extract-figma-anchors.mjs",
   "extract-text-content.mjs",
+  "export-baseline-assets.mjs",
   "figma-rest-image.sh",
   "measure-quality.sh",
   "migrate-baselines.mjs",
@@ -110,12 +115,27 @@ const scripts = [
   "progress-update.mjs",
   "setup-figma-token.sh",
   "status.mjs",
+  "verify-publishing-complete.mjs",
   "why.mjs",
   "write-protected-paths.json",
+  "write-protection-baseline.mjs",
 ];
 
 for (const script of scripts) {
   copyRequired(join(harnessDir, "scripts", script), join(cwd, "scripts", script));
+}
+
+if (existsSync(packagePath)) {
+  const pkg = JSON.parse(readFileSync(packagePath, "utf8").replace(/^\uFEFF/, ""));
+  pkg.scripts = pkg.scripts || {};
+  pkg.scripts["verify:gates"] = pkg.scripts["verify:gates"] || "node scripts/verify-publishing-complete.mjs";
+  pkg.scripts["verify:publishing"] = "node scripts/assert-completion-contract.mjs";
+  pkg.scripts["complete:publishing"] = pkg.scripts["complete:publishing"] || "node scripts/assert-completion-contract.mjs";
+  pkg.scripts.quality = pkg.scripts.quality || "bash scripts/measure-quality.sh";
+  pkg.devDependencies = pkg.devDependencies || {};
+  pkg.devDependencies["@lhci/cli"] = pkg.devDependencies["@lhci/cli"] || "^0.14.0";
+  pkg.devDependencies.lighthouse = pkg.devDependencies.lighthouse || "^12.2.1";
+  writeFileSync(packagePath, JSON.stringify(pkg, null, 2) + "\n");
 }
 
 copyRequired(join(harnessDir, "docs", "workflow.md"), join(cwd, "docs", "workflow.md"));
@@ -163,13 +183,23 @@ if (!existsSync(join(cwd, "progress.json"))) {
 const render = spawnSync(process.execPath, [join(cwd, "scripts", "progress-render.mjs")], { cwd, stdio: "inherit" });
 if (render.status !== 0) process.exit(render.status || 1);
 
+const baseline = spawnSync(process.execPath, [join(cwd, "scripts", "write-protection-baseline.mjs")], { cwd, stdio: "inherit" });
+if (baseline.status !== 0) {
+  console.error("publish-harness adoption incomplete: write-protection baseline creation failed.");
+  process.exit(baseline.status || 1);
+}
+
 if (fileKey && !existsSync(join(cwd, "docs", "figma-pages.md"))) {
-  spawnSync(process.execPath, [
+  const discovery = spawnSync(process.execPath, [
     join(cwd, "scripts", "discover-figma-pages.mjs"),
     "--file-key", fileKey,
     "--out", "docs/figma-pages.md",
     "--apply",
   ], { cwd, stdio: "inherit", env: process.env });
+  if (discovery.status !== 0) {
+    console.error("publish-harness adoption incomplete: route discovery failed. Fix FIGMA_TOKEN/fileKey or run discover-figma-pages.mjs manually.");
+    process.exit(discovery.status || 1);
+  }
 }
 
 console.log("publish-harness adoption complete.");

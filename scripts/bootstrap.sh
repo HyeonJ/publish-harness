@@ -352,6 +352,7 @@ cp "$HARNESS_DIR/scripts/check-text-ratio-html.mjs" scripts/
 cp "$HARNESS_DIR/scripts/check-token-usage-html.mjs" scripts/
 cp "$HARNESS_DIR/scripts/check-write-protection.mjs" scripts/
 cp "$HARNESS_DIR/scripts/write-protected-paths.json" scripts/
+cp "$HARNESS_DIR/scripts/write-protection-baseline.mjs" scripts/
 cp "$HARNESS_DIR/scripts/check-react-reusability.mjs" scripts/
 cp "$HARNESS_DIR/scripts/adopt-existing-project.mjs" scripts/
 cp "$HARNESS_DIR/scripts/assemble-page-preview.mjs" scripts/
@@ -372,10 +373,15 @@ cp "$HARNESS_DIR/scripts/check-legacy-additions.mjs" scripts/
 # beverage-product 회고 §B-3+B-6+B-7: Phase 2 분해 자동 분석 + 텍스트 콘텐츠 추출
 cp "$HARNESS_DIR/scripts/analyze-page-structure.mjs" scripts/
 cp "$HARNESS_DIR/scripts/extract-text-content.mjs" scripts/
+cp "$HARNESS_DIR/scripts/export-baseline-assets.mjs" scripts/
 cp "$HARNESS_DIR/scripts/measure-quality.sh" scripts/
+cp "$HARNESS_DIR/scripts/verify-publishing-complete.mjs" scripts/
+cp "$HARNESS_DIR/scripts/assert-completion-contract.mjs" scripts/
 cp "$HARNESS_DIR/scripts/doctor.sh" scripts/
 cp "$HARNESS_DIR/scripts/setup-figma-token.sh" scripts/
 chmod +x scripts/*.sh scripts/*.mjs scripts/_lib/*.sh 2>/dev/null || true
+node scripts/write-protection-baseline.mjs >/tmp/write-protection-baseline.out 2>/tmp/write-protection-baseline.err \
+  || { cat /tmp/write-protection-baseline.out 2>/dev/null || true; cat /tmp/write-protection-baseline.err 2>/dev/null || true; echo "write-protection baseline creation failed" >&2; exit 1; }
 
 # ---------- 5. docs/ 복사 ----------
 echo "[bootstrap] 5/9 docs/ 복사"
@@ -532,7 +538,11 @@ if [ "$MODE" = "figma" ]; then
 else
   COMMIT_MSG="chore: bootstrap publish-harness (spec mode, handoff ${HANDOFF_DIR})"
 fi
-git commit -q -m "$COMMIT_MSG" || echo "  (이미 커밋된 상태)"
+if git commit -q -m "$COMMIT_MSG"; then
+  echo "  ✓ initial git commit"
+else
+  echo "  ⚠ initial git commit skipped/failed; G10 will use .publish-harness/write-protection-baseline.json until HEAD exists."
+fi
 
 echo ""
 echo "=================================="
@@ -556,7 +566,7 @@ echo "다음 단계 (세션 재시작 후):"
 if [ "$MODE" = "figma" ]; then
   echo "  1. docs/token-audit.md 를 열어 추출된 토큰 검토"
   echo "  2. docs/project-context.md 에 페이지 Node ID 채우기"
-  echo "  3. npm run dev 로 dev 서버 기동 (선택)"
+  echo "  3. npm run dev 로 dev 서버 기동 (PowerShell: npm.cmd run dev)"
   if [ "$AGENT" = "codex" ]; then
     echo "  4. Codex 세션에서 AGENTS.md + docs/codex-section-worker.md 기준으로 첫 페이지 진행"
   else
@@ -566,7 +576,7 @@ if [ "$MODE" = "figma" ]; then
 else
   echo "  1. docs/components-spec.md 를 열어 임포트된 컴포넌트 명세 검토"
   echo "  2. docs/project-context.md 에 구현할 컴포넌트 목록 채우기"
-  echo "  3. npm run dev 로 dev 서버 기동 (선택)"
+  echo "  3. npm run dev 로 dev 서버 기동 (PowerShell: npm.cmd run dev)"
   if [ "$AGENT" = "codex" ]; then
     echo "  4. Codex 세션에서 AGENTS.md + docs/codex-section-worker.md 기준으로 Foundation 컴포넌트부터 진행"
   else
@@ -576,6 +586,6 @@ else
 fi
 echo ""
 echo "📦 strict visual harness 의존성 (선택, 없으면 G1 SKIP):"
-echo "   npm i -D playwright pixelmatch pngjs"
-echo "   npx playwright install chromium"
+echo "   npm i -D playwright pixelmatch pngjs (PowerShell: npm.cmd i -D playwright pixelmatch pngjs)"
+echo "   npx playwright install chromium (PowerShell: npx.cmd playwright install chromium)"
 echo ""

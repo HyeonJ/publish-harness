@@ -8,7 +8,10 @@
     "start": "next start -H 127.0.0.1 -p 5173",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
-    "quality": "bash scripts/measure-quality.sh"
+    "quality": "bash scripts/measure-quality.sh",
+    "verify:gates": "node scripts/verify-publishing-complete.mjs",
+    "verify:publishing": "node scripts/assert-completion-contract.mjs",
+    "complete:publishing": "node scripts/assert-completion-contract.mjs"
   },
   "dependencies": {
     "next": "^14.2.0",
@@ -25,6 +28,8 @@
     "eslint": "^8.57.0",
     "eslint-config-next": "^14.2.0",
     "eslint-plugin-jsx-a11y": "^6.9.0",
+    "@lhci/cli": "^0.14.0",
+    "lighthouse": "^12.2.1",
     "pixelmatch": "^7.1.0",
     "playwright": "^1.47.0",
     "pngjs": "^7.0.0",

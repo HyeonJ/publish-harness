@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, renameSync } from 'node:fs';
+import { mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 
 const VALID_STATUS = new Set(['pending', 'in_progress', 'done', 'blocked', 'skipped']);
@@ -43,9 +43,46 @@ export function write(path, obj) {
   validate(obj);
   obj.updatedAt = new Date().toISOString();
   // atomic: write to .tmp then rename
-  const tmp = path + '.tmp';
+  const tmp = `${path}.${process.pid}.${Date.now()}.tmp`;
   writeFileSync(tmp, JSON.stringify(obj, null, 2) + '\n', 'utf8');
   renameSync(tmp, path);
+}
+
+function sleep(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+export function withProgressLock(path, fn, { timeoutMs = 10000, staleMs = 30000 } = {}) {
+  const lockDir = `${path}.lock`;
+  const started = Date.now();
+  while (true) {
+    try {
+      mkdirSync(lockDir);
+      break;
+    } catch (error) {
+      if (error?.code !== 'EEXIST') throw error;
+      try {
+        const age = Date.now() - statSync(lockDir).mtimeMs;
+        if (age > staleMs) {
+          rmSync(lockDir, { recursive: true, force: true });
+          continue;
+        }
+      } catch {
+        rmSync(lockDir, { recursive: true, force: true });
+        continue;
+      }
+      if (Date.now() - started > timeoutMs) {
+        throw new Error(`timed out waiting for progress lock: ${lockDir}`);
+      }
+      sleep(50);
+    }
+  }
+
+  try {
+    return fn();
+  } finally {
+    rmSync(lockDir, { recursive: true, force: true });
+  }
 }
 
 export function addPage(obj, { name, nodeId, nodeIdTablet = null, nodeIdMobile = null, route = null }) {

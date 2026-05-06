@@ -11,7 +11,7 @@
  *     [--budget-negative-margin 2] [--budget-arbitrary-px 3] [--budget-breakpoint 2]
  */
 
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync, statSync } from "node:fs";
 import { resolve } from "node:path";
 import { detectEscapesInFile, detectAllowedEscapeRanges, extractDependencyClosure, ALLOWED_ESCAPE_REASONS } from "./_lib/escape-detect.mjs";
 
@@ -19,6 +19,7 @@ function parseArgs(argv) {
   const o = {
     section: null,
     files: null,
+    dir: null,
     runtime: false,
     url: null,
     "budget-positioning": 0,
@@ -42,9 +43,44 @@ function parseArgs(argv) {
 }
 
 const opts = parseArgs(process.argv.slice(2));
-if (!opts.section || !opts.files) { console.error("usage: --section <id> --files \"f1 f2\""); process.exit(2); }
+if (!opts.section || (!opts.files && !opts.dir)) { console.error("usage: --section <id> (--files \"f1 f2\" | --dir <path>)"); process.exit(2); }
 
-const requestedFiles = opts.files.split(/\s+/).filter((f) => f);
+const SOURCE_RE = /\.(tsx|jsx|ts|js)$/;
+const EXCLUDED_DIRS = new Set([
+  ".git",
+  ".idea",
+  ".next",
+  ".turbo",
+  "baselines",
+  "build",
+  "coverage",
+  "dist",
+  "node_modules",
+]);
+const EXCLUDED_PATH_PARTS = new Set(["quality"]);
+
+function walkSourceFiles(dir, out = []) {
+  if (!existsSync(dir)) return out;
+  for (const entry of readdirSync(dir)) {
+    const path = resolve(dir, entry);
+    const stat = statSync(path);
+    if (stat.isDirectory()) {
+      if (EXCLUDED_DIRS.has(entry)) continue;
+      if (entry === "tests") {
+        const parts = path.split(/[\\/]/);
+        if (parts.some((part) => EXCLUDED_PATH_PARTS.has(part))) continue;
+      }
+      walkSourceFiles(path, out);
+    } else if (SOURCE_RE.test(entry)) {
+      out.push(path);
+    }
+  }
+  return out;
+}
+
+const requestedFiles = opts.files
+  ? opts.files.split(/\s+/).filter((f) => f)
+  : walkSourceFiles(opts.dir);
 const fileList = [];
 for (const f of requestedFiles) {
   if (existsSync(f)) fileList.push(f);

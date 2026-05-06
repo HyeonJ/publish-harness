@@ -15,7 +15,9 @@
  * 종료 코드: 0 PASS, 1 FAIL, 2 usage error.
  */
 
-import { readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { relative } from "node:path";
 import { execSync } from "node:child_process";
 
 function parseArgs() {
@@ -24,11 +26,13 @@ function parseArgs() {
     paths: "scripts/write-protected-paths.json",
     base: "HEAD",
     head: null,
+    baseline: ".publish-harness/write-protection-baseline.json",
   };
   for (let i = 0; i < args.length; i++) {
     if (args[i] === "--paths") opts.paths = args[++i];
     else if (args[i] === "--base") opts.base = args[++i];
     else if (args[i] === "--head") opts.head = args[++i];
+    else if (args[i] === "--baseline") opts.baseline = args[++i];
     else if (args[i] === "-h" || args[i] === "--help") {
       console.error("usage: check-write-protection.mjs [--paths <json>] [--base <commit>] [--head <commit>]");
       process.exit(2);
@@ -71,6 +75,29 @@ function git(args) {
   }
 }
 
+function hasGitHead() {
+  return git("rev-parse --verify HEAD").trim().length > 0;
+}
+
+function normalize(path) {
+  return path.replace(/\\/g, "/").replace(/^\.\//, "");
+}
+
+function sha256(path) {
+  return createHash("sha256").update(readFileSync(path)).digest("hex");
+}
+
+function walk(dir, out = []) {
+  if (!existsSync(dir)) return out;
+  for (const entry of readdirSync(dir)) {
+    const path = `${dir.replace(/[\\/]+$/, "")}/${entry}`;
+    const stat = statSync(path);
+    if (stat.isDirectory()) walk(path, out);
+    else out.push(path);
+  }
+  return out;
+}
+
 function changedFiles(base, head) {
   let lines;
   if (head) {
@@ -89,10 +116,74 @@ function changedFiles(base, head) {
   return new Set(lines.map((s) => s.trim().replace(/\\/g, "/")).filter(Boolean));
 }
 
+function changedFilesFromBaseline(baselinePath, protectedSet, protectedDirs) {
+  if (!existsSync(baselinePath)) {
+    return {
+      error: `missing write-protection baseline manifest: ${baselinePath}`,
+      changed: new Set(),
+      baselineFiles: 0,
+    };
+  }
+  let manifest;
+  try {
+    manifest = JSON.parse(readFileSync(baselinePath, "utf8"));
+  } catch (error) {
+    return {
+      error: `invalid write-protection baseline manifest: ${error.message}`,
+      changed: new Set(),
+      baselineFiles: 0,
+    };
+  }
+  const expected = manifest.files && typeof manifest.files === "object" ? manifest.files : {};
+  const candidates = new Set(Object.keys(expected).map(normalize));
+  for (const path of protectedSet) {
+    if (existsSync(path)) candidates.add(path);
+  }
+  for (const dir of protectedDirs) {
+    for (const file of walk(dir)) {
+      candidates.add(normalize(relative(process.cwd(), file)));
+    }
+  }
+
+  const changed = new Set();
+  for (const path of candidates) {
+    const before = expected[path]?.sha256 || null;
+    const existsNow = existsSync(path) && statSync(path).isFile();
+    if (!before && existsNow) {
+      changed.add(path);
+      continue;
+    }
+    if (before && !existsNow) {
+      changed.add(path);
+      continue;
+    }
+    if (before && existsNow && sha256(path) !== before) {
+      changed.add(path);
+    }
+  }
+  return { changed, baselineFiles: Object.keys(expected).length };
+}
+
 function main() {
   const opts = parseArgs();
   const { paths: protectedSet, protectedDirs } = loadProtected(opts.paths);
-  const changed = changedFiles(opts.base, opts.head);
+  const useGit = opts.head || opts.base !== "HEAD" || hasGitHead();
+  const baselineResult = useGit
+    ? null
+    : changedFilesFromBaseline(opts.baseline, protectedSet, protectedDirs);
+  if (baselineResult?.error) {
+    const report = {
+      base: "NO_GIT_HEAD",
+      head: "WORKING_TREE",
+      baseline: opts.baseline,
+      status: "FAIL",
+      reason: baselineResult.error,
+    };
+    console.log(JSON.stringify(report, null, 2));
+    console.error(`G10 FAIL: ${baselineResult.error}. Run scripts/write-protection-baseline.mjs during bootstrap/adopt.`);
+    process.exit(1);
+  }
+  const changed = useGit ? changedFiles(opts.base, opts.head) : baselineResult.changed;
 
   // 1) exact match (schema v1 호환) — 정확 path 가 changed 에 있으면 violation
   const exactViolations = [...protectedSet].filter((p) => changed.has(p));
@@ -107,6 +198,9 @@ function main() {
   const report = {
     base: opts.base,
     head: opts.head ?? "WORKING_TREE",
+    mode: useGit ? "git" : "baseline-manifest",
+    baseline: useGit ? null : opts.baseline,
+    baseline_files: useGit ? null : baselineResult.baselineFiles,
     protected_count: protectedSet.size,
     protected_dirs_count: protectedDirs.length,
     changed_count: changed.size,
