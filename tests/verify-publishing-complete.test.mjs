@@ -148,6 +148,22 @@ test("fails when strict G1 has no matched anchors", () => {
   assert.match(result.stdout, /G1_NO_ANCHORS_MATCHED/);
 });
 
+test("fails when G1 anchor manifest is empty", () => {
+  const cwd = makeProject();
+  const qualityPath = join(cwd, "tests", "quality", "home.json");
+  const quality = JSON.parse(readFileSync(qualityPath, "utf8"));
+  quality.G1_visual_regression.viewports.desktop.l2.anchorsMatched = 0;
+  quality.G1_visual_regression.viewports.desktop.l2.anchorsTotal = 0;
+  quality.G1_visual_regression.viewports.desktop.l2.requiredMatched = 0;
+  quality.G1_visual_regression.viewports.desktop.l2.requiredTotal = 0;
+  writeFileSync(qualityPath, JSON.stringify(quality, null, 2) + "\n", "utf8");
+
+  const result = runVerifier(cwd);
+  assert.notEqual(result.status, 0);
+  assert.match(result.stdout, /G1_EMPTY_ANCHOR_MANIFEST/);
+  assert.match(result.stdout, /G1_NO_REQUIRED_ANCHORS/);
+});
+
 test("fails G7 skip unless explicitly allowed", () => {
   const cwd = makeProject({ g7: "SKIP" });
   const result = runVerifier(cwd);
@@ -172,4 +188,21 @@ test("fails final verifier when G12 detail contains pixel mirror debt", () => {
   const result = runVerifier(cwd);
   assert.notEqual(result.status, 0);
   assert.match(result.stdout, /G12_PIXEL_MIRROR_OR_HIDDEN_ANCHOR_DEBT/);
+});
+
+test("fails final verifier when L1 target gap remains without env opt-in", () => {
+  const cwd = makeProject();
+  const qualityPath = join(cwd, "tests", "quality", "home.json");
+  const quality = JSON.parse(readFileSync(qualityPath, "utf8"));
+  quality.G1_visual_regression.viewports.desktop.l1 = {
+    diffPercent: 9.5,
+    thresholdTarget: 5,
+    targetGap: 4.5,
+    enforcingTarget: false,
+  };
+  writeFileSync(qualityPath, JSON.stringify(quality, null, 2) + "\n", "utf8");
+
+  const result = runVerifier(cwd);
+  assert.notEqual(result.status, 0);
+  assert.match(result.stdout, /G1_L1_TARGET_NOT_MET/);
 });

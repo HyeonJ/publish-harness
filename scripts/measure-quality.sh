@@ -35,6 +35,9 @@ if [ -z "${MODE:-}" ]; then
   MODE="${MODE:-figma}"
 fi
 MODE=$(sanitize_scalar "$MODE")
+if [ "$MODE" = "figma" ] && [ -z "${G1_ENFORCE_L1_TARGET:-}" ]; then
+  export G1_ENFORCE_L1_TARGET=1
+fi
 
 if [ -z "${PREVIEW_BASE_URL:-}" ]; then
   if [ -f "docs/project-context.md" ]; then

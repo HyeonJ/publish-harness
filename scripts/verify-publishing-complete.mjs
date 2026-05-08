@@ -241,11 +241,11 @@ if (progress) {
       const g1 = quality.G1_visual_regression;
       for (const [viewport, result] of getViewportEntries(g1)) {
         const l1 = result?.l1;
-        if (process.env.G1_ENFORCE_L1_TARGET === "1" && l1 && Number(l1.targetGap || 0) > 0) {
+        if (l1 && Number(l1.targetGap || 0) > 0) {
           fail(
             failures,
             "G1_L1_TARGET_NOT_MET",
-            `${section.name} ${viewport} L1 diff is ${l1.diffPercent}% with target ${l1.thresholdTarget}%; rerun G1 with G1_ENFORCE_L1_TARGET=1 and reduce the remaining ${l1.targetGap}% target gap.`,
+            `${section.name} ${viewport} L1 diff is ${l1.diffPercent}% with target ${l1.thresholdTarget}%; reduce the remaining ${l1.targetGap}% target gap before final figma publishing.`,
             qualityPath(section.name),
           );
         }
@@ -258,6 +258,22 @@ if (progress) {
             qualityPath(section.name),
           );
           continue;
+        }
+        if (typeof l2.anchorsTotal === "number" && l2.anchorsTotal === 0) {
+          fail(
+            failures,
+            "G1_EMPTY_ANCHOR_MANIFEST",
+            `${section.name} ${viewport} has anchorsTotal=0; final figma publishing requires a Figma-derived anchor manifest with meaningful anchors.`,
+            qualityPath(section.name),
+          );
+        }
+        if (typeof l2.requiredTotal === "number" && l2.requiredTotal === 0) {
+          fail(
+            failures,
+            "G1_NO_REQUIRED_ANCHORS",
+            `${section.name} ${viewport} has requiredTotal=0; final figma publishing requires required anchors from the Figma node tree.`,
+            qualityPath(section.name),
+          );
         }
         if (typeof l2.requiredMatched === "number" && typeof l2.requiredTotal === "number" && l2.requiredMatched < l2.requiredTotal) {
           fail(
