@@ -357,6 +357,7 @@ if [ "${LITE:-0}" = "1" ]; then
     G1_JSON=$(node "${SCRIPT_DIR}/check-visual-regression.mjs" \
       --section "$section" \
       --baseline "${BASELINE:-${G1_BASELINE_DIR}/desktop.png}" \
+      --preview-base "$PREVIEW_BASE_URL" \
       --viewport "${VIEWPORT}" 2>/tmp/g1.err || true)
   else
     G1_JSON='{"section":"'"$section"'","status":"FAIL","reason":"LITE=1 is not allowed for final figma publishing quality gates; prepare strict baselines and rerun without LITE","strictEffective":false}'
@@ -374,6 +375,7 @@ elif [ -d "$G1_BASELINE_DIR" ]; then
   G1_JSON=$(node "${SCRIPT_DIR}/check-visual-regression.mjs" \
     --section "$section" \
     --baseline-dir "$G1_BASELINE_DIR" \
+    --preview-base "$PREVIEW_BASE_URL" \
     --viewports "$AVAIL_VIEWPORTS" \
     --strict 2>/tmp/g1.err || true)
 else

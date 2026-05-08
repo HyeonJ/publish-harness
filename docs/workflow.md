@@ -270,7 +270,7 @@ spec 모드에서는 `figma-screenshots/` 디렉토리를 생성하지 않는다
 4. Tier 2 (Figma Mobile/Tablet 디자인 있는 페이지):
    - 해당 뷰포트 캡처를 Figma baseline 과 비교 (육안, 측정 대상 아님)
    - 디자인 의도 벗어나는 부분 발견 시 해당 섹션 수정
-5. (선택) Lighthouse: `bash scripts/measure-quality.sh {page}-full {page-dir}`
+5. (선택) Lighthouse: `npm run quality -- {page}-full {page-dir}`
 6. PROGRESS.md 페이지 완료 체크
 
 ## baseline 갱신 프로토콜

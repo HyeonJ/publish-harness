@@ -123,7 +123,7 @@ async function prepareViewport(viewport) {
     }
     // 1) png
     execSync(
-      `bash "${SCRIPT_DIR}/figma-rest-image.sh" "${opts["file-key"]}" "${opts["section-node"]}" "${pngPath}" --scale 2`,
+      `ALLOW_FRAME=1 bash "${SCRIPT_DIR}/figma-rest-image.sh" "${opts["file-key"]}" "${opts["section-node"]}" "${pngPath}" --scale 2`,
       { stdio: "inherit" }
     );
     // 2) anchors — B-1b: --page-node 옵트인 시 figmaPageWidth 자동 추출

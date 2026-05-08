@@ -7,7 +7,7 @@ import { join } from 'node:path';
 
 export function suggest({ progress, env = {}, cwd = process.cwd() }) {
   if (!progress) {
-    return { action: 'bash scripts/bootstrap.sh <figma-url>', code: 'BOOTSTRAP', target: null };
+    return { action: 'node scripts/bootstrap.mjs <figma-url>', code: 'BOOTSTRAP', target: null };
   }
   const diag = diagnose({ progress, env, cwd });
   if (diag.code !== 'OK_PROCEED' && diag.code !== 'OK_NEXT_PHASE') {

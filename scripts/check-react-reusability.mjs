@@ -13,6 +13,10 @@
 
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { basename, join, relative } from "node:path";
+import { parse } from "@babel/parser";
+import traverseModule from "@babel/traverse";
+
+const traverse = traverseModule.default ?? traverseModule;
 
 function parseArgs(argv) {
   const opts = { files: "" };
@@ -231,6 +235,509 @@ function findLogoMediaWarnings(cssText, rel) {
   return warnings;
 }
 
+function lineNumberAt(text, index) {
+  return text.slice(0, index).split(/\r?\n/).length;
+}
+
+function hasHideIntentStyle(styleText) {
+  const hasHidingTransform =
+    /transform\s*:\s*["'][^"']*scale\s*\(\s*0(?:\.0+)?\s*\)/.test(styleText) ||
+    /transform\s*:\s*["'][^"']*translate[XY]?\s*\(\s*-?\d{4,}(?:px|vw|vh|%)?/.test(styleText);
+  return (
+    /opacity\s*:\s*0(?:\b|[\s,;}])/.test(styleText) ||
+    /visibility\s*:\s*["']hidden["']/.test(styleText) ||
+    /display\s*:\s*["']none["']/.test(styleText) ||
+    /filter\s*:\s*["'][^"']*opacity\s*\(/.test(styleText) ||
+    /clipPath\s*:|clip-path\s*:|mask(?:Image)?\s*:/.test(styleText) ||
+    /\b(?:left|right|top|bottom)\s*:\s*["']?-?\d{4,}(?:px|vw|vh|%)?/.test(styleText) ||
+    hasHidingTransform
+  );
+}
+
+function findUnsafeDisplayContentsHiddenLayers(text, file) {
+  const failures = [];
+  const openTagPattern = /<([A-Za-z][\w.]*)\b([^<>]*?style\s*=\s*\{\{[\s\S]*?\}\}[^<>]*?)>/g;
+  let match;
+  while ((match = openTagPattern.exec(text))) {
+    const tag = match[1];
+    const attrs = match[2] || "";
+    const styleMatch = attrs.match(/style\s*=\s*\{\{([\s\S]*?)\}\}/);
+    const styleText = styleMatch?.[1] || "";
+    if (!/display\s*:\s*["']contents["']/.test(styleText)) continue;
+    if (!hasHideIntentStyle(styleText)) continue;
+
+    const closeIndex = text.indexOf(`</${tag}>`, openTagPattern.lastIndex);
+    const body = closeIndex === -1
+      ? text.slice(openTagPattern.lastIndex, openTagPattern.lastIndex + 2400)
+      : text.slice(openTagPattern.lastIndex, closeIndex);
+    if (!/data-anchors?\s*=/.test(attrs) && !/data-anchors?\s*=/.test(body)) continue;
+
+    failures.push({
+      code: "UNSAFE_DISPLAY_CONTENTS_HIDDEN_LAYER",
+      message: `${file}:${lineNumberAt(text, match.index)} uses display:contents with a hiding style around data-anchor descendants. display:contents has no visual box, so opacity/visibility/transform hiding can leave child anchors painted and duplicate Figma bitmap text.`,
+      file,
+      severity: "failure",
+    });
+  }
+  return failures;
+}
+
+function findStringConcatEvasions(text, file) {
+  const failures = [];
+  const patterns = [
+    /(["'](?:abs|fix|rel|stick|stat|cont|non|hid|vis|opac|tran|block|inline)["']\s*\+\s*["'][A-Za-z_-]+["'])\s+as\s+CSSProperties\[[^\]]+\]/g,
+    /style\s*=\s*\{\{[\s\S]{0,400}["'][A-Za-z_-]+["']\s*\+\s*["'][A-Za-z_-]+["'][\s\S]{0,400}\}\}/g,
+  ];
+  for (const pattern of patterns) {
+    let match;
+    while ((match = pattern.exec(text))) {
+      failures.push({
+        code: "STRING_CONCAT_EVASION",
+        message: `${file}:${lineNumberAt(text, match.index)} builds CSS style values with string concatenation. This looks like gate evasion; use literal CSS values and update the harness policy when an escape is legitimate.`,
+        file,
+        severity: "failure",
+      });
+    }
+  }
+  return failures;
+}
+
+function parseReactSource(text) {
+  try {
+    return {
+      ast: parse(text, {
+      sourceType: "module",
+      plugins: ["typescript", "jsx"],
+      errorRecovery: true,
+      }),
+      error: null,
+    };
+  } catch (error) {
+    return { ast: null, error };
+  }
+}
+
+function jsxNameToString(name) {
+  if (!name) return "";
+  if (name.type === "JSXIdentifier") return name.name;
+  if (name.type === "JSXMemberExpression") {
+    return `${jsxNameToString(name.object)}.${jsxNameToString(name.property)}`;
+  }
+  if (name.type === "JSXNamespacedName") return `${name.namespace.name}:${name.name.name}`;
+  return "";
+}
+
+function getJsxAttribute(opening, attrName) {
+  return opening.attributes?.find((attr) =>
+    attr.type === "JSXAttribute" && jsxNameToString(attr.name) === attrName
+  );
+}
+
+function hasJsxAttribute(opening, attrName) {
+  return Boolean(getJsxAttribute(opening, attrName));
+}
+
+function hasAnyJsxAttribute(opening, attrNames) {
+  return attrNames.some((attrName) => hasJsxAttribute(opening, attrName));
+}
+
+function jsxAttributeStringValue(attr) {
+  if (!attr?.value) return "";
+  if (attr.value.type === "StringLiteral") return attr.value.value || "";
+  if (attr.value.type === "JSXExpressionContainer") {
+    const expr = attr.value.expression;
+    if (expr?.type === "StringLiteral") return expr.value || "";
+    if (expr?.type === "TemplateLiteral" && expr.expressions.length === 0) {
+      return expr.quasis.map((quasi) => quasi.value.cooked || "").join("");
+    }
+  }
+  return "";
+}
+
+function nodeSource(text, node) {
+  if (!node || typeof node.start !== "number" || typeof node.end !== "number") return "";
+  return text.slice(node.start, node.end);
+}
+
+function styleSourceFromOpening(text, opening) {
+  const styleAttr = getJsxAttribute(opening, "style");
+  return nodeSource(text, styleAttr?.value);
+}
+
+function isPixelMirrorOpening(opening) {
+  const name = jsxNameToString(opening.name);
+  return (
+    name === "PixelMirrorSection" ||
+    name.endsWith(".PixelMirrorSection") ||
+    hasAnyJsxAttribute(opening, ["data-pixel-mirror", "data-pixel-mirrors"])
+  );
+}
+
+function isHiddenAnchorLayerOpening(opening) {
+  const name = jsxNameToString(opening.name);
+  return name === "HiddenAnchorLayer" || name.endsWith(".HiddenAnchorLayer");
+}
+
+function hasPixelMirrorReasonOpening(opening) {
+  return hasAnyJsxAttribute(opening, [
+    "data-pixel-mirror-reason",
+    "pixelMirrorReason",
+    "mirrorReason",
+  ]);
+}
+
+function openingFromJsxElementPath(path) {
+  return path?.node?.openingElement || null;
+}
+
+function ancestorOpenings(path) {
+  return path.getAncestry()
+    .map((ancestor) => ancestor.isJSXElement?.() ? openingFromJsxElementPath(ancestor) : null)
+    .filter(Boolean);
+}
+
+function isInsidePixelMirrorBoundary(path) {
+  return ancestorOpenings(path).some((opening) => isPixelMirrorOpening(opening));
+}
+
+function isInsideHiddenAnchorBoundary(path) {
+  return ancestorOpenings(path).some((opening) =>
+    isPixelMirrorOpening(opening) || isHiddenAnchorLayerOpening(opening)
+  );
+}
+
+function nearestPixelMirrorOpening(path) {
+  return ancestorOpenings(path).find((opening) => isPixelMirrorOpening(opening)) || null;
+}
+
+function collectSectionRasterImports(ast) {
+  const imports = [];
+  traverse(ast, {
+    ImportDeclaration(path) {
+      const source = path.node.source?.value || "";
+      if (!/figma-section-[^"']+\.(?:png|jpe?g|webp)$/i.test(source)) return;
+      for (const specifier of path.node.specifiers || []) {
+        if (specifier.local?.name) {
+          imports.push({
+            localName: specifier.local.name,
+            source,
+            line: path.node.loc?.start?.line || 1,
+          });
+        }
+      }
+    },
+  });
+  return imports;
+}
+
+function jsxUsesSectionRaster(text, opening, sectionRasterImports) {
+  const srcAttr = getJsxAttribute(opening, "src");
+  const srcLiteral = jsxAttributeStringValue(srcAttr);
+  if (/figma-section-[^"']+\.(?:png|jpe?g|webp)/i.test(srcLiteral)) return true;
+  const srcSource = nodeSource(text, srcAttr?.value);
+  for (const { localName: name } of sectionRasterImports) {
+    if (new RegExp(`\\b${name}\\b`).test(srcSource)) return true;
+  }
+  const styleSource = styleSourceFromOpening(text, opening);
+  return /figma-section-[^"']+\.(?:png|jpe?g|webp)/i.test(styleSource);
+}
+
+function jsxLooksLikeFullBackdrop(text, opening) {
+  const styleSource = styleSourceFromOpening(text, opening);
+  if (!styleSource) return false;
+  return (
+    /position\s*:\s*["']absolute["'][\s\S]{0,260}inset\s*:\s*(?:["']?0|0\b)/.test(styleSource) ||
+    /inset\s*:\s*(?:["']?0|0\b)[\s\S]{0,260}objectFit\s*:\s*["']fill["']/.test(styleSource) ||
+    /width\s*:\s*["']100%["'][\s\S]{0,260}height\s*:\s*["']100%["']/.test(styleSource)
+  );
+}
+
+function isProbablyHiddenOpening(opening) {
+  if (isPixelMirrorOpening(opening) || isHiddenAnchorLayerOpening(opening)) return true;
+  if (hasJsxAttribute(opening, "hidden")) return true;
+  const ariaHidden = getJsxAttribute(opening, "aria-hidden");
+  const ariaValue = jsxAttributeStringValue(ariaHidden);
+  if (ariaHidden && (!ariaHidden.value || ariaValue === "true")) return true;
+  const className = jsxAttributeStringValue(getJsxAttribute(opening, "className")) ||
+    jsxAttributeStringValue(getJsxAttribute(opening, "class"));
+  if (/(?:font-text-probe|font-preload|hidden-anchor|figma-anchor|sr-only|visually-hidden)/i.test(className)) return true;
+  return hasHideIntentStyle(styleSourceFromOpening("", opening) || "");
+}
+
+function isInsideHiddenOrMirror(path) {
+  return ancestorOpenings(path).some((opening) => isProbablyHiddenOpening(opening));
+}
+
+function findThinRasterShellIssues(text, file, ast, sectionRasterImports) {
+  const failures = [];
+  const allowPixelMirror = process.env.PUBLISH_HARNESS_ALLOW_PIXEL_MIRROR === "1";
+  let imgCount = 0;
+  let visibleTextChars = 0;
+  let visibleSemanticCount = 0;
+
+  traverse(ast, {
+    JSXOpeningElement(path) {
+      const name = jsxNameToString(path.node.name);
+      if (name === "img") imgCount++;
+      if (isInsideHiddenOrMirror(path)) return;
+      if (/^(h[1-6]|p|button|a|ul|ol|li|input|textarea|select|label|article|section|nav|header|footer|main)$/i.test(name)) {
+        visibleSemanticCount++;
+      }
+    },
+    JSXText(path) {
+      if (isInsideHiddenOrMirror(path)) return;
+      const raw = path.node.value.trim();
+      if (/[A-Za-z가-힣]/.test(raw)) visibleTextChars += raw.length;
+    },
+    JSXExpressionContainer(path) {
+      if (isInsideHiddenOrMirror(path)) return;
+      const expr = path.node.expression;
+      if (expr?.type === "StringLiteral" && /[A-Za-z가-힣]/.test(expr.value)) {
+        visibleTextChars += expr.value.trim().length;
+      }
+    },
+  });
+
+  if (!allowPixelMirror && sectionRasterImports.length) {
+    for (const item of sectionRasterImports) {
+      failures.push({
+        code: "SECTION_RASTER_IMPORT_FINAL_BLOCKED",
+        message: `${file}:${item.line} imports ${item.source}. Full page/section Figma raster imports are blocked in final React publishing; export leaf assets and render text/layout/cards as DOM/CSS.`,
+        file,
+        severity: "failure",
+      });
+    }
+  }
+
+  const routeShellFile = /(?:^|[\\/])src[\\/](?:pages|app)[\\/]|(?:^|[\\/])src[\\/]App\.(?:tsx|jsx)$/.test(file);
+  if (!allowPixelMirror && imgCount > 0 && visibleTextChars < 10 && visibleSemanticCount < 3 && (sectionRasterImports.length || routeShellFile)) {
+    failures.push({
+      code: "RASTER_DOM_SHELL_TOO_THIN",
+      message: `${file} renders image content with only ${visibleTextChars} visible text chars and ${visibleSemanticCount} visible semantic elements. This looks like a screenshot shell, not reusable React output.`,
+      file,
+      severity: "failure",
+    });
+  }
+  return failures;
+}
+
+function findPixelMirrorPolicyIssues(text, file) {
+  const failures = [];
+  const warnings = [];
+  const allowPixelMirror = process.env.PUBLISH_HARNESS_ALLOW_PIXEL_MIRROR === "1";
+  const parsed = parseReactSource(text);
+  if (!parsed.ast) {
+    warnings.push({
+      code: "JSX_PARSE_FAILED",
+      message: `${file} could not be parsed as TSX/JSX, so structural pixel-mirror and hidden-anchor checks were skipped: ${parsed.error?.message || "unknown parse error"}`,
+      file,
+    });
+    return { failures, warnings };
+  }
+  const ast = parsed.ast;
+  const sectionRasterImports = collectSectionRasterImports(ast);
+  failures.push(...findThinRasterShellIssues(text, file, ast, sectionRasterImports));
+
+  traverse(ast, {
+    JSXOpeningElement(path) {
+      const opening = path.node;
+      const openingName = jsxNameToString(opening.name);
+      const line = opening.loc?.start?.line || lineNumberAt(text, opening.start || 0);
+      const carriesAnchor = hasAnyJsxAttribute(opening, ["data-anchor", "data-anchors"]);
+      const styleSource = styleSourceFromOpening(text, opening);
+      if (isPixelMirrorOpening(opening) && !allowPixelMirror) {
+        failures.push({
+          code: "PIXEL_MIRROR_FINAL_BLOCKED",
+          message: `${file}:${line} uses PixelMirrorSection/data-pixel-mirror. Final React publishing must render reusable visible DOM/CSS, not a Figma screenshot mirror. Set PUBLISH_HARNESS_ALLOW_PIXEL_MIRROR=1 only for an explicit temporary review build.`,
+          file,
+          severity: "failure",
+        });
+      }
+      if (isHiddenAnchorLayerOpening(opening) && !allowPixelMirror) {
+        failures.push({
+          code: "HIDDEN_ANCHOR_LAYER_FINAL_BLOCKED",
+          message: `${file}:${line} uses HiddenAnchorLayer. Final anchors must be attached to visible DOM elements, not hidden geometry overlays.`,
+          file,
+          severity: "failure",
+        });
+      }
+      if ((openingName === "FigmaAnchorOverlay" || openingName.endsWith(".FigmaAnchorOverlay")) && !allowPixelMirror) {
+        failures.push({
+          code: "FIGMA_ANCHOR_OVERLAY_FINAL_BLOCKED",
+          message: `${file}:${line} uses FigmaAnchorOverlay. Overlay-only anchors can make L2 pass without reusable visible implementation.`,
+          file,
+          severity: "failure",
+        });
+      }
+      if (carriesAnchor && hasHideIntentStyle(styleSource) && !isInsideHiddenAnchorBoundary(path)) {
+        failures.push({
+          code: "HIDDEN_ANCHOR_WITHOUT_OPT_IN",
+          message: `${file}:${line} hides an element that carries data-anchor/data-anchors outside a structural PixelMirrorSection/HiddenAnchorLayer boundary. Hidden anchor geometry is technical debt, not a general anchor mapping tool.`,
+          file,
+          severity: "failure",
+        });
+      }
+
+      if (jsxUsesSectionRaster(text, opening, sectionRasterImports) && jsxLooksLikeFullBackdrop(text, opening)) {
+        if (!allowPixelMirror) {
+          failures.push({
+            code: "SECTION_RASTER_FINAL_BLOCKED",
+            message: `${file}:${line} renders a figma-section-* raster as a full-section backdrop. Final output must use appropriate leaf rasters only; text, cards, buttons, and layout must remain reusable DOM/CSS.`,
+            file,
+            severity: "failure",
+          });
+          return;
+        }
+        const boundary = nearestPixelMirrorOpening(path);
+        if (!boundary) {
+          failures.push({
+            code: "RASTER_BACKDROP_WITHOUT_OPT_IN",
+            message: `${file}:${line} renders a full-section Figma raster backdrop outside PixelMirrorSection/data-pixel-mirror. Section rasters must be explicit technical debt, not an invisible shortcut to lower L1.`,
+            file,
+            severity: "failure",
+          });
+        } else if (!hasPixelMirrorReasonOpening(boundary)) {
+          failures.push({
+            code: "MISSING_PIXEL_MIRROR_REASON",
+            message: `${file}:${line} renders a full-section Figma raster inside a pixel mirror boundary without a reason. Add data-pixel-mirror-reason or a PixelMirrorSection reason prop.`,
+            file,
+            severity: "failure",
+          });
+        }
+      }
+    },
+  });
+  return { failures, warnings };
+}
+
+function jsxClassTokens(opening) {
+  const classAttr = getJsxAttribute(opening, "className") || getJsxAttribute(opening, "class");
+  const value = jsxAttributeStringValue(classAttr);
+  return value ? value.split(/\s+/).filter(Boolean) : [];
+}
+
+function collectAnchoredClassUses(text, file) {
+  const uses = [];
+  const parsed = parseReactSource(text);
+  const ast = parsed.ast;
+  if (!ast) return uses;
+  traverse(ast, {
+    JSXOpeningElement(path) {
+      const opening = path.node;
+      if (!hasAnyJsxAttribute(opening, ["data-anchor", "data-anchors"])) return;
+      if (isInsideHiddenAnchorBoundary(path)) return;
+      const classNames = jsxClassTokens(opening);
+      if (!classNames.length) return;
+      uses.push({
+        file,
+        line: opening.loc?.start?.line || lineNumberAt(text, opening.start || 0),
+        classNames,
+      });
+    },
+  });
+  return uses;
+}
+
+function collectHiddenCssClasses(cssText, rel) {
+  const classes = [];
+  const rulePattern = /([^{}]+)\{([^{}]+)\}/g;
+  let match;
+  while ((match = rulePattern.exec(cssText))) {
+    const selector = match[1] || "";
+    const body = match[2] || "";
+    if (!hasHideIntentStyle(body)) continue;
+    for (const classMatch of selector.matchAll(/\.([A-Za-z_][\w-]*)/g)) {
+      classes.push({
+        className: classMatch[1],
+        file: rel,
+        line: lineNumberAt(cssText, match.index),
+      });
+    }
+  }
+  return classes;
+}
+
+function findCssSectionRasterBackdrops(cssText, rel) {
+  const failures = [];
+  const allowPixelMirror = process.env.PUBLISH_HARNESS_ALLOW_PIXEL_MIRROR === "1";
+  const rulePattern = /([^{}]+)\{([^{}]+)\}/g;
+  let match;
+  while ((match = rulePattern.exec(cssText))) {
+    const selector = match[1] || "";
+    const body = match[2] || "";
+    if (!/figma-section-[^"')]+\.(?:png|jpe?g|webp)/i.test(body)) continue;
+    const looksLikeBackdrop =
+      /position\s*:\s*absolute/.test(body) ||
+      /inset\s*:\s*0/.test(body) ||
+      /width\s*:\s*100%/.test(body) && /height\s*:\s*100%/.test(body) ||
+      /background-size\s*:\s*(?:cover|100%\s+100%)/.test(body);
+    if (!looksLikeBackdrop) continue;
+    if (!allowPixelMirror) {
+      failures.push({
+        code: "CSS_SECTION_RASTER_FINAL_BLOCKED",
+        message: `${rel}:${lineNumberAt(cssText, match.index)} uses a figma-section raster as a CSS full-section backdrop. Final React publishing requires reusable DOM/CSS and appropriate leaf rasters only.`,
+        file: rel,
+        severity: "failure",
+      });
+      continue;
+    }
+    if (/pixel-mirror-reason\s*:\s*[^;*]+/.test(body)) continue;
+    failures.push({
+      code: "CSS_RASTER_BACKDROP_WITHOUT_OPT_IN",
+      message: `${rel}:${lineNumberAt(cssText, match.index)} uses a figma-section raster as a CSS full-section backdrop without a pixel-mirror boundary. Keep reusable DOM visible or move the debt into PixelMirrorSection.`,
+      file: rel,
+      severity: "failure",
+    });
+  }
+  return failures;
+}
+
+function countInlinePixelStyles(text) {
+  const matches = text.match(/style\s*=\s*\{\{[\s\S]*?(?:\b(?:width|height|top|left|right|bottom|fontSize|lineHeight|margin(?:Top|Bottom|Left|Right)?|padding(?:Top|Bottom|Left|Right)?)\s*:\s*(?:"\d+(?:\.\d+)?px"|\d+))[\s\S]*?\}\}/g);
+  return matches?.length || 0;
+}
+
+function findPixelMirrorWarnings(text, file) {
+  const warnings = [];
+  const mirrorMatches = [...text.matchAll(/data-pixel-mirrors?\s*=\s*["']([^"']+)["']/g)];
+  for (const match of mirrorMatches) {
+    const attrsStart = text.lastIndexOf("<", match.index);
+    const attrsEnd = text.indexOf(">", match.index);
+    const attrs = text.slice(Math.max(0, attrsStart), attrsEnd === -1 ? match.index + 500 : attrsEnd);
+    if (!/data-pixel-mirror-reason\s*=/.test(attrs)) {
+      warnings.push({
+        code: "MISSING_PIXEL_MIRROR_REASON",
+        message: `${file}:${lineNumberAt(text, match.index)} declares data-pixel-mirror="${match[1]}" without data-pixel-mirror-reason. Pixel mirrors are technical debt and need a reason/removal trail.`,
+        file,
+      });
+    }
+    if (!/<PixelMirrorSection\b/.test(text)) {
+      warnings.push({
+        code: "BARE_PIXEL_MIRROR_ATTRIBUTE",
+        message: `${file}:${lineNumberAt(text, match.index)} uses data-pixel-mirror directly. Prefer a shared PixelMirrorSection primitive so raster-backed debt is auditable.`,
+        file,
+      });
+    }
+  }
+  if (mirrorMatches.length > 2) {
+    warnings.push({
+      code: "PIXEL_MIRROR_BUDGET",
+      message: `${file} declares ${mirrorMatches.length} pixel-mirror sections. Keep this temporary budget low; the long-term target is zero full-section raster mirrors.`,
+      file,
+    });
+  }
+
+  const inlinePixelStyleCount = countInlinePixelStyles(text);
+  if (inlinePixelStyleCount > 8) {
+    warnings.push({
+      code: "INLINE_PIXEL_STYLE_DENSITY",
+      message: `${file} has ${inlinePixelStyleCount} inline pixel-tuned style blocks. Move stable visual rules into CSS or a dedicated anchor-tuning layer.`,
+      file,
+    });
+  }
+  return warnings;
+}
+
 const opts = parseArgs(process.argv.slice(2));
 const root = process.cwd();
 const strictWarnings = process.env.G12_STRICT === "1" || process.env.STRICT === "1";
@@ -309,6 +816,7 @@ const targetFiles = opts.files
   ? opts.files.split(/\s+/).filter(Boolean)
   : walk(opts.dir || "").filter((file) => /\.(tsx|jsx)$/.test(file));
 
+const anchoredClassUses = [];
 for (const file of targetFiles) {
   const text = readText(file);
   const lines = lineCount(text);
@@ -331,6 +839,13 @@ for (const file of targetFiles) {
       file,
     });
   }
+  failures.push(...findUnsafeDisplayContentsHiddenLayers(text, file));
+  failures.push(...findStringConcatEvasions(text, file));
+  const pixelMirrorPolicy = findPixelMirrorPolicyIssues(text, file);
+  failures.push(...pixelMirrorPolicy.failures);
+  warnings.push(...pixelMirrorPolicy.warnings);
+  warnings.push(...findPixelMirrorWarnings(text, file));
+  anchoredClassUses.push(...collectAnchoredClassUses(text, file));
 }
 
 const sourceTextFiles = walk(join(root, "src", "data")).filter((file) => /\.(ts|tsx|js|jsx)$/.test(file));
@@ -349,6 +864,7 @@ const cssFiles = uniqueFiles([
   ...walk(opts.dir || "").filter((file) => /\.css$/.test(file)),
   ...walk(join(root, "src", "components")).filter((file) => /\.css$/.test(file)),
 ]);
+const hiddenCssClasses = [];
 for (const file of cssFiles) {
   const text = readText(file);
   const lines = lineCount(text);
@@ -374,6 +890,8 @@ for (const file of cssFiles) {
   }
   warnings.push(...findDecorLayerWarnings(text, rel));
   warnings.push(...findContentFitControlWarnings(text, rel));
+  hiddenCssClasses.push(...collectHiddenCssClasses(text, rel));
+  failures.push(...findCssSectionRasterBackdrops(text, rel));
   const logoMediaWarnings = findLogoMediaWarnings(text, rel);
   for (const item of logoMediaWarnings) {
     if (item.code === "LOGO_MEDIA_HEIGHT_AUTO" || item.code === "LOGO_MEDIA_NO_FIT_BOX") {
@@ -384,6 +902,21 @@ for (const file of cssFiles) {
     } else {
       warnings.push(item);
     }
+  }
+}
+
+if (hiddenCssClasses.length && anchoredClassUses.length) {
+  const hiddenByClass = new Map(hiddenCssClasses.map((item) => [item.className, item]));
+  for (const use of anchoredClassUses) {
+    const hiddenClass = use.classNames.find((className) => hiddenByClass.has(className));
+    if (!hiddenClass) continue;
+    const css = hiddenByClass.get(hiddenClass);
+    failures.push({
+      code: "HIDDEN_ANCHOR_CLASS_WITHOUT_OPT_IN",
+      message: `${use.file}:${use.line} carries data-anchor/data-anchors and class "${hiddenClass}", which is hidden by ${css.file}:${css.line}. Hidden anchor geometry is allowed only inside PixelMirrorSection/HiddenAnchorLayer debt boundaries.`,
+      file: use.file,
+      severity: "failure",
+    });
   }
 }
 

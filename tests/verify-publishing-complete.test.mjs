@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 
 const script = resolve("scripts/verify-publishing-complete.mjs");
 
-function makeProject({ quality = true, placeholder = false, defect = "template", pageStatus = "done", sectionStatus = "done", g7 = "PASS" } = {}) {
+function makeProject({ quality = true, placeholder = false, defect = "template", pageStatus = "done", sectionStatus = "done", g7 = "PASS", g12Detail = null } = {}) {
   const dir = mkdtempSync(join(tmpdir(), "verify-publishing-"));
   mkdirSync(join(dir, "docs"), { recursive: true });
   mkdirSync(join(dir, "tests", "quality"), { recursive: true });
@@ -70,6 +70,7 @@ function makeProject({ quality = true, placeholder = false, defect = "template",
       G10_write_protection: "PASS",
       G11_layout_escapes: "PASS",
       G12_reusability: "PASS",
+      G12_detail: g12Detail || { status: "PASS", failures: [], warnings: [] },
       G1_visual_regression: {
         status: "PASS",
         strictEffective: true,
@@ -158,4 +159,17 @@ test("fails G7 skip unless explicitly allowed", () => {
   const json = JSON.parse(allowed.stdout);
   assert.equal(json.status, "PASS");
   assert.ok(json.warnings.some((warning) => warning.code === "G7_NOT_PASS"));
+});
+
+test("fails final verifier when G12 detail contains pixel mirror debt", () => {
+  const cwd = makeProject({
+    g12Detail: {
+      status: "PASS",
+      failures: [],
+      warnings: [{ code: "PIXEL_MIRROR_FINAL_BLOCKED", message: "pixel mirror present" }],
+    },
+  });
+  const result = runVerifier(cwd);
+  assert.notEqual(result.status, 0);
+  assert.match(result.stdout, /G12_PIXEL_MIRROR_OR_HIDDEN_ANCHOR_DEBT/);
 });

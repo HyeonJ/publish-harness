@@ -21,7 +21,7 @@ export function judge({ totalText, totalAlt, totalImg, anyLiteral, section, file
   const g6 = rasterHeavy
     ? false
     : totalAlt === 0 || totalAlt < ALT_FLOOR_CHARS || ratio >= RATIO_THRESHOLD;
-  const g8 = anyLiteral || totalAlt < ALT_FLOOR_CHARS;
+  const g8 = rasterHeavy ? false : anyLiteral || totalAlt < ALT_FLOOR_CHARS;
   const report = {
     section,
     files,

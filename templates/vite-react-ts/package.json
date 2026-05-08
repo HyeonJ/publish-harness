@@ -9,7 +9,7 @@
     "preview": "vite preview",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
-    "quality": "bash scripts/measure-quality.sh",
+    "quality": "node scripts/run-bash-script.mjs scripts/measure-quality.sh",
     "verify:gates": "node scripts/verify-publishing-complete.mjs",
     "verify:publishing": "node scripts/assert-completion-contract.mjs",
     "complete:publishing": "node scripts/assert-completion-contract.mjs"

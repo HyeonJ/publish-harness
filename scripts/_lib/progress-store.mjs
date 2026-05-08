@@ -115,6 +115,25 @@ export function setSectionStatus(obj, name, status) {
     throw new Error(`invalid status: ${status}`);
   }
   s.status = status;
+  syncPageStatuses(obj);
+}
+
+export function syncPageStatuses(obj) {
+  for (const page of obj.pages || []) {
+    const sections = (page.sections || [])
+      .map((name) => obj.sections.find((section) => section.name === name))
+      .filter(Boolean);
+    if (!sections.length) continue;
+    if (sections.every((section) => section.status === 'done' || section.status === 'skipped')) {
+      page.status = 'done';
+    } else if (sections.some((section) => section.status === 'blocked')) {
+      page.status = 'blocked';
+    } else if (sections.some((section) => section.status === 'in_progress')) {
+      page.status = 'in_progress';
+    } else {
+      page.status = 'pending';
+    }
+  }
 }
 
 export function recordGateResult(obj, name, result) {
@@ -139,6 +158,7 @@ export function recordGateResult(obj, name, result) {
       s.status = 'in_progress';
     }
   }
+  syncPageStatuses(obj);
 }
 
 // ---- measure-quality.sh JSON 어댑터 -----------------------------------------

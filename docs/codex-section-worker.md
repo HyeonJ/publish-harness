@@ -96,6 +96,10 @@ component tree, assets, tokens, and known risks.
 - Check downloaded images before using them when asset correctness affects the
   section.
 - Prefer tokens, CSS, inline SVG, and existing components over rasterized text.
+  Full-section or full-card raster exports are not a substitute for React DOM.
+  Product photos, decorative bitmap art, and complex non-text imagery are
+  appropriate raster assets; visible text, buttons, cards, lists, and layout
+  structure should be rendered as DOM/SVG/components.
 
 ## Step 3: Implementation
 
@@ -112,6 +116,38 @@ component tree, assets, tokens, and known risks.
   `data-anchor="<Page>/<id>"`. Shared layout components should accept `pageId`
   so `SiteLayout`, `Nav`, and `Footer` can render page-specific anchors such as
   `Home/root`, `Home/nav`, and `Home/footer`.
+- Use `data-anchor="<Page>/<id>"` for a single Figma anchor. When multiple
+  duplicate section/background/frame anchors intentionally map to the same
+  visible DOM box, use a whitespace-separated token list:
+  `data-anchors="Home/section-4 Home/rectangle-170 Home/rectangle-170-2"`.
+  Use `data-anchors` only on visible boxes whose browser bbox represents all of
+  those Figma nodes. Do not mix text-label anchors and section/background
+  anchors on the same element, and do not use hidden/dummy nodes.
+- `data-anchor` and `data-anchors` are harness contract attributes, not debug
+  residue. Keep them in publishing output unless a separate final-build strip
+  step is explicitly configured.
+- Do not lower G1 L1 diff by replacing a section with a Figma screenshot while
+  hiding the real React content. The temporary page L1 budget may be 10% while
+  the long-term target remains 5%; that relaxation is meant to allow honest DOM
+  implementations, not to approve raster-backed sections. Set
+  `G1_ENFORCE_L1_TARGET=1` to make the current target, 5%, the effective G1
+  threshold when promoting from migration mode to final quality mode. The final
+  verifier also rejects positive L1 `targetGap` values in that mode.
+- If a section truly must be pixel-mirrored for a temporary review reason, make
+  the debt explicit with `data-pixel-mirror="<Page>/<section-anchor>"` on the
+  section root and add `data-pixel-mirror-reason="..."`. Prefer a shared
+  `PixelMirrorSection` primitive with a namespaced prop such as
+  `pixelMirrorReason`, and a `HiddenAnchorLayer` primitive instead of ad hoc
+  `opacity: 0` anchor geometry. This is blocked by default in final G12; use
+  `PUBLISH_HARNESS_ALLOW_PIXEL_MIRROR=1` only for a documented temporary review
+  run, not for completion.
+- Pixel-mirror opt-in is structural, not file-wide. Hidden anchors and
+  full-section rasters are allowed only as descendants of the explicit
+  `PixelMirrorSection` / `HiddenAnchorLayer` boundary. A pixel mirror in one
+  section does not exempt unrelated sibling sections in the same file.
+- Hidden anchor geometry and `FigmaAnchorOverlay` are not acceptable final
+  anchor solutions. Do not put `opacity: 0`, `visibility: hidden`, or
+  `display: none` directly on anchor elements in normal reusable sections.
 - Split CSS by ownership boundary. Keep `src/styles/index.css` as imports only,
   put reusable component/layout rules under `src/styles/components`, and put
   route-specific rules under `src/styles/pages`.
@@ -173,10 +209,12 @@ component tree, assets, tokens, and known risks.
 Run the harness gate entrypoint:
 
 ```bash
-bash scripts/measure-quality.sh <section> <section-dir>
+npm.cmd run quality -- <section> <section-dir>
 ```
 
-`measure-quality.sh` runs gates in this order for both Codex and Claude:
+`measure-quality.sh` runs gates in this order for both Codex and Claude. On
+Windows PowerShell, call it through `npm.cmd run quality -- ...` so the Node
+launcher can find a working Bash instead of a broken WSL shim:
 
 ```text
 G10 -> G4 -> G11 -> G12 -> G5 -> G6/G8 -> G7 -> G1
@@ -185,6 +223,9 @@ G10 -> G4 -> G11 -> G12 -> G5 -> G6/G8 -> G7 -> G1
 G1 visual regression is the final gate. It compares the finished preview
 against the Figma/spec baseline after static, structural, semantic, content,
 and Lighthouse checks have run.
+L1 masks matched text-like anchors after L2/text diagnostics have measured
+their boxes and typography, so residual pixel diff should focus on media,
+backgrounds, decor, and layout rather than text antialiasing.
 
 Fail on:
 
@@ -198,21 +239,173 @@ Fail on:
 - G7 Lighthouse failures when the environment is available
 - G1 visual drift when strict baseline exists
 
-When G1 fails, fix categories in this order:
+If `anchorsMatched: 0` or required coverage is low, generate a mapping report
+before editing:
 
-1. required anchor missing or `anchorsMatched: 0`
-2. decorative image in normal flow, then decorative z-index/layer order
-3. wrong anchor target, especially nav control/text and footer wordmark
-4. repeated image stack height drift and section height explosion
-5. typography/text metric mismatch
-6. remaining L1 pixel diff
+```bash
+node scripts/report-anchor-mapping.mjs --manifest baselines/<section>/anchors-desktop.json --quality tests/quality/<section>.json
+```
+
+Required anchors are blocking. Optional anchors are diagnostics; never add
+hidden dummy nodes just to satisfy optional coverage.
+
+When G1 fails, read the mapping report in this order:
+
+1. Required coverage. If `requiredMatched` is `0`, map required anchors first.
+   If `requiredMatched < requiredTotal`, finish required anchor mapping before
+   visual tuning. Optional missing anchors are diagnostics, not blockers.
+2. Section stack/gap. Read `Section / Root Deltas` and `Section Gap Deltas`.
+   Large `heightDelta` explains local section height drift; large `gapDelta`
+   explains normal-flow spacing drift between adjacent sections. Treat later
+   section y deltas as downstream symptoms until the source pair is identified.
+3. Repeated height. Read `Repeated Height Drift` for sibling rows/sections that
+   share the same height delta, for example three product rows that are all
+   `+120px`.
+   Also read `Repeated Slot / Card Sequence Drift` before tuning individual
+   card anchors in repeated rows. If Figma shows a fixed slot sequence, such as
+   five review cards, but the DOM resolves to a centered grid with different
+   item count, order, or x gaps, match the repeated item count/order/slot
+   spacing first. Do not move one card anchor or tune card text while the row
+   model itself differs. If repeated slot anchors include duplicate decorative
+   variants, such as `rectangle-12` and `rectangle-12-2` sharing the same Figma
+   bbox and visible image slot, collapse them to one visual slot for count/gap
+   judgment and map them with `data-anchors` on that visible item.
+4. Anchor target mismatch. Read `Anchor Target Mismatches` for text/control
+   anchors whose measured bbox is much wider than Figma, such as a small text
+   label anchored to a full-width block element. Move anchors to visible inner
+   text only; do not add hidden or dummy anchors.
+5. Section/background anchor target mismatch. Read
+   `Full BBox Anchor Groups` and `Section / Background Anchor Target Mismatch`
+   before text tuning. If a rectangle, frame, background, or section-sized
+   anchor has actual text attached, treat it as a likely wrong target unless
+   the Figma node is text. Move the anchor to the visible section/background
+   DOM box or document missing visual mapping; do not tune the text. Duplicate
+   full-bbox anchors that represent the same visible box may share one DOM
+   element via `data-anchors`.
+6. Text content/anchor mismatch. After anchor target mismatch is fixed, the
+   same text anchor may still appear in `Top Deltas`. Read
+   `Text Content / Anchor Mismatch` before text metric tuning. If the anchor
+   id/name or Figma text does not match the DOM text, verify the content source
+   or anchor mapping before changing font size, line-height, width, or
+   placement. If `expected` is missing and the anchor name is generic, such as
+   `a paragraph or two`, `paragraph`, `heading`, `copy`, or `description`, do
+   not move the anchor from name mismatch alone; inspect surrounding context or
+   improve expected text extraction first. These should appear as
+   `Low Confidence Text Mismatches` / `reviewOnly=true`; they may remain in
+   `Top Deltas`, but they are not a reason to change app copy, move the anchor,
+   or tune text metrics before stronger structural diagnostics. Anchor names
+   without expected text are weak hints: punctuation, quote marks, truncation,
+   or a partial token match should point you toward placement/card order before
+   moving the anchor. If review-only text mismatches are the only text content
+   items left, move on to residual section/root drift or L1 visual diff
+   investigation instead of treating expected text extraction as an app-code
+   fix.
+   If the only difference is a likely spelling typo in the Figma layer name,
+   such as a repeated or missing character, do not change product copy to match
+   the layer name. If the anchor name is semantic rather than content, such as
+   `logoname`, `wordmark`, `brand`, or `handle`, treat it as low-confidence
+   until expected text or overlapping text anchors confirm a wrong target.
+7. Text metric/placement drift. Read `Text Metric / Placement Drift` to
+   separate wrapping width, line-height, and placement issues from wrapper
+   targeting. Wrapper mismatch is an anchor placement problem; text metric
+   drift is typography, wrapping, or local layout. When a text item carries
+   `anchor-name-spelling-typo` or `text-anchor-name-typo-match`, keep the app
+   copy as the real content and tune only size, wrapping, or placement if the
+   bbox still differs. When the report shows `text-bbox-too-small`,
+   `text-size-too-small`, `wrapping-width-too-narrow`, or
+   `text-line-height-too-small`, fix the visible text box, font size, or
+   line-height before continuing placement-only tuning. When width and height
+   ratios are already close to 1 and the report shows
+   `text-micro-placement-drift` or `text-placement-residual`, defer that item
+   until larger wrapping, sizing, wrapper-target, and layout issues are handled.
+   Read signed `deltaY` values, not only absolute `dy`: when several text
+   anchors share the same signed y offset, inspect upstream normal flow,
+   section height, or gap propagation before applying individual transforms.
+   The `Shared Text Y Offset` report section marks this as
+   `downstream-text-placement-drift` / `text-flow-offset-propagation`. Compare
+   `sectionDeltaY` with the group's signed `deltaY`: a large
+   `residualVsSection` means the section root is comparatively stable and a
+   common inner wrapper/content group is the better first suspect; a small
+   residual means the text is likely following upstream section/root/gap flow.
+8. Wrapper target mismatch. Read `Wrapper Target Mismatches` when a text,
+   logo, or semantic anchor measures as a much larger section/wrapper box with
+   unrelated long text. Move the anchor to the visible target element or
+   document an intentional wrapper mapping; do not tune logo scale or text
+   metrics against the wrapper bbox.
+9. Duplicate text bbox groups. Read `Duplicate Text BBox Groups` when two or
+   more text-ish anchors share the same Figma bbox. If they represent the same
+   visible text layer or semantic duplicate, put all ids on that visible text
+   element with `data-anchors`; do not add hidden/dummy anchors. If a wrapper
+   target mismatch belongs to one of these groups, prefer the group’s
+   `data-anchors` suggestion over per-anchor visual tuning.
+10. Logo/brand scale drift. Read `Logo / Brand Scale Drift` before treating a
+   logo or wordmark top delta as text content drift. Verify the anchor is on
+   the intended visible logo/wordmark. If it is, tune the fit box, optical
+   scale, or per-logo sizing metadata; do not infer a content mismatch unless
+   expected text contradicts the rendered text.
+11. Internal layout drift. Read `Internal Section Drift Groups` for sections
+   where anchor target sizes are reasonable but section-relative placement is
+   far from Figma. This often means a semantic grid does not match a Figma
+   freeform/staggered layout.
+   If `Layout Model Mismatches` reports `rewrite-required`, stop small
+   margin/padding tuning for that section and switch to a section rewrite or
+   explicit human decision. A semantic deviation waiver cannot be used for
+   completion unless a person approves it and the affected section/anchors,
+   rationale, and non-visual gate evidence are documented.
+   If it reports `rewrite-effective-residual-offset`, the section's internal
+   placement has likely converged and the remaining deltas share a common
+   root-relative offset. Inspect upstream section stack/gap/root positioning
+   before rewriting the same section again. Read `Section Offset Propagation`
+   and `Shared Residual Offset Sources`: compare the previous section's
+   `fromYDelta + fromHeightDelta + gapDelta` with the target section's shared
+   offset. If they match, fix the source section height/root or the source pair
+   gap before touching the target section again.
+   If `Non-actionable Root Residuals` reports the target section with
+   `residual=0` and `gapDelta=0` or near zero, do not move that target section.
+   The offset is being propagated through an already-correct gap; inspect the
+   upstream source or move to L1-dominant visual diff investigation.
+12. Media/text metrics. Check media-size and typography categories after the
+   structural causes above are understood.
+13. L1 residual. Only tune residual pixels after required anchors, stack/gap,
+   repeated height, target mismatch, and internal layout drift are addressed or
+   explicitly documented. When `actionableRemaining=false` and L1 still fails,
+   read `Section L1 Diff Hotspots` before editing. Rank the largest section
+   hotspots by diff pixels/percent and classify the cause as asset/crop,
+   missing decor, color/token/background, stacking, or resize artifact. If a
+   hotspot reports `solid-background-color-drift`, fix the visible background
+   or token source rather than moving anchors or section roots. Whole-section
+   average color can be diluted by large product images, so compare
+   `bgCurrent`, `bgBaseline`, and `bgDistance` before dismissing a background
+   color issue. If it reports `image-content-mismatch-candidate` or
+   `asset-order-mismatch-candidate`, compare the actual image assets, order,
+   crop, and object-position for that section before changing layout. If the
+   same hotspot reports `overlay-text-content-drift-candidate` or
+   `overlay-text-order-mismatch-candidate`, inspect visible overlay copy,
+   order, stacking, and overlap before treating the section as an image or
+   background-only problem. Use `actionableTextSignals` as the primary evidence
+   for overlay work. `reviewOnlyTextSignals` and generic `textSignals` are
+   hints, not proof: expected-text-missing optional duplicates, semantic layer
+   names, and generic layer names should stay review-only until surrounding
+   context confirms a wrong target. A single text metric signal in a section
+   that is otherwise an image/content/order hotspot is not enough to treat the
+   section as an overlay text problem; the report may mark that as
+   `text-signal-present-nonblocking`. When the hotspot prints `imageSignals`,
+   inspect those anchors' asset files, array order, `object-fit`, crop, and
+   `object-position` before changing section layout. If an image signal's
+   width/height ratios are close to `1` but x/y deltas are large, suspect
+   asset order or slot placement first. If width/height ratios are far from
+   `1`, suspect crop, fit mode, object position, or media sizing first.
 
 Do not create a baseline from the implemented preview screenshot. In figma mode,
 baseline PNG and anchor manifests must come from `prepare-baseline.mjs --mode
-figma`, which uses Figma REST exports. In spec mode, use a human-reviewed
-handoff/reference baseline when available. `--update-baseline` is not a Codex
-worker action and is blocked unless `UPDATE_BASELINE_ALLOWED=1` is explicitly
-set for a reviewed baseline update.
+figma`, which uses Figma REST exports. Figma REST 401/403 is an auth/access
+blocker: stop and report the HTTP status instead of using a preview screenshot
+as fallback. Figma baseline PNGs must have a sibling `.provenance.json` from
+`figma-rest-image.sh`, and anchor manifests must come from the Figma node tree.
+Root-only hand-authored manifests are invalid. In spec mode, use a
+human-reviewed handoff/reference baseline when available. `--update-baseline`
+is not a Codex worker action and is blocked unless `UPDATE_BASELINE_ALLOWED=1`
+is explicitly set for a reviewed baseline update.
 
 If a gate produces a JSON result under `tests/quality/`, record it:
 
@@ -280,4 +473,3 @@ incomplete.
   `docs/codex-model-policy.md` or split the section.
 - When blocked, mark the section with `progress-update set-section` rather than
   editing `PROGRESS.md`.
-

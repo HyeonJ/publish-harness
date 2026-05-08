@@ -15,6 +15,7 @@
 
 import { writeManifest, ROLES } from "./_lib/anchor-manifest.mjs";
 import { resolve } from "node:path";
+import { spawnSync } from "node:child_process";
 
 function parseArgs(argv) {
   const opts = {};
@@ -42,7 +43,21 @@ for (const r of required) {
   }
 }
 
-const TOKEN = process.env.FIGMA_TOKEN;
+function loadFigmaToken() {
+  if (process.env.FIGMA_TOKEN) return process.env.FIGMA_TOKEN;
+  if (process.platform !== "win32") return "";
+  for (const bin of ["powershell.exe", "powershell"]) {
+    const result = spawnSync(bin, ["-NoProfile", "-Command", "[Environment]::GetEnvironmentVariable('FIGMA_TOKEN', 'User')"], {
+      encoding: "utf8",
+      windowsHide: true,
+    });
+    const token = result.stdout?.trim();
+    if (result.status === 0 && token) return token;
+  }
+  return "";
+}
+
+const TOKEN = loadFigmaToken();
 if (!TOKEN) {
   console.error("ERROR: FIGMA_TOKEN env required");
   process.exit(2);
@@ -51,7 +66,10 @@ if (!TOKEN) {
 const url = `https://api.figma.com/v1/files/${opts["file-key"]}/nodes?ids=${encodeURIComponent(opts["section-node"])}&depth=4`;
 const res = await fetch(url, { headers: { "X-Figma-Token": TOKEN } });
 if (!res.ok) {
-  console.error(`ERROR: Figma REST failed ${res.status}`);
+  const detail = res.status === 401 || res.status === 403
+    ? " Check FIGMA_TOKEN and file access; preview screenshot baseline fallback is forbidden."
+    : "";
+  console.error(`ERROR: Figma REST failed ${res.status}.${detail}`);
   process.exit(1);
 }
 const json = await res.json();
@@ -187,7 +205,7 @@ function walk(node, depth = 0, parents = []) {
       ROLES.PRIMARY_MEDIA,
     ].includes(role);
     const visualRequired = isVisualRequired(node, role, parents);
-    anchors.push({
+    const anchor = {
       id: uniqueId(baseId),
       role,
       required: baseRequired || visualRequired,
@@ -199,7 +217,17 @@ function walk(node, depth = 0, parents = []) {
         w: Math.round(abs.width),
         h: Math.round(abs.height),
       },
-    });
+    };
+    if (node.type === "TEXT") {
+      anchor.typography = {
+        characters: node.characters || "",
+        fontFamily: node.style?.fontFamily || null,
+        fontWeight: node.style?.fontWeight || null,
+        fontSize: node.style?.fontSize || null,
+        fontStyle: node.style?.fontPostScriptName || node.style?.fontStyle || null,
+      };
+    }
+    anchors.push(anchor);
   }
   if (node.children) {
     const nextParents = [...parents, node];
@@ -221,6 +249,10 @@ const manifest = {
   version: 2,
   section: opts.section,
   viewport: opts.viewport,
+  source: "figma-node-tree",
+  fileKey: opts["file-key"],
+  sectionNodeId: opts["section-node"],
+  extractedAt: new Date().toISOString(),
   figmaPageWidth, // B-1b: number | null. null 이면 check-visual-regression 의 L2 normalize SKIP.
   anchors,
 };

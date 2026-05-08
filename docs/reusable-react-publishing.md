@@ -79,6 +79,13 @@ for shared Header/Footer/SiteLayout.
   `baselines/<Page>/anchors-*.json` must exist in the DOM with exact
   `data-anchor` values. Shared layout components should accept a page id so
   route-specific anchors can be rendered without duplicating layout JSX.
+- Use `data-anchor` for a single anchor id. For duplicate section/background or
+  frame anchors that intentionally share the same visible box, use
+  `data-anchors` with a whitespace-separated token list, for example
+  `data-anchors="Home/section-4 Home/rectangle-170 Home/rectangle-170-2"`.
+  The element must be visible and its browser bbox must represent every listed
+  anchor. Do not combine text-label anchors with section/background anchors on
+  the same element, and do not create hidden/dummy elements for anchor coverage.
 - For nav/buttons/tabs, distinguish the outer control bbox from the inner label
   text bbox. Attach anchors to the element whose browser bbox represents the
   corresponding Figma node.

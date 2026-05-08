@@ -87,7 +87,7 @@
 
 **G1 strict 원칙**: default 차단. 신규 프로젝트는 anchor manifest 부재 시 FAIL. 기존 프로젝트는 `baselines/<section>/legacy.json` (createdBy: migrate-baselines, 90일 expiresAt) 만 SKIP 허용. `LITE=1` env 로 개발 로컬 우회 가능 (CI 차단). 결과 JSON 의 `strictEffective` 필드로 가시화.
 
-실행: `bash scripts/measure-quality.sh <section> <section-dir> [--viewport desktop|tablet|mobile]`
+실행: `npm run quality -- <section> <section-dir> [--viewport desktop|tablet|mobile]`
 
 ## 참조 문서
 

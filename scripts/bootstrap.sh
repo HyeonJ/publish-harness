@@ -360,6 +360,7 @@ cp "$HARNESS_DIR/scripts/check-visual-regression.mjs" scripts/
 # progress/state CLI (Claude/Codex 공통 오케스트레이션 진입점)
 cp "$HARNESS_DIR/scripts/progress-update.mjs" scripts/
 cp "$HARNESS_DIR/scripts/progress-render.mjs" scripts/
+cp "$HARNESS_DIR/scripts/run-bash-script.mjs" scripts/
 cp "$HARNESS_DIR/scripts/why.mjs" scripts/
 cp "$HARNESS_DIR/scripts/status.mjs" scripts/
 cp "$HARNESS_DIR/scripts/next.mjs" scripts/
@@ -370,6 +371,7 @@ cp "$HARNESS_DIR/scripts/prepare-baseline.mjs" scripts/
 cp "$HARNESS_DIR/scripts/check-layout-escapes.mjs" scripts/
 cp "$HARNESS_DIR/scripts/migrate-baselines.mjs" scripts/
 cp "$HARNESS_DIR/scripts/check-legacy-additions.mjs" scripts/
+cp "$HARNESS_DIR/scripts/report-anchor-mapping.mjs" scripts/
 # beverage-product 회고 §B-3+B-6+B-7: Phase 2 분해 자동 분석 + 텍스트 콘텐츠 추출
 cp "$HARNESS_DIR/scripts/analyze-page-structure.mjs" scripts/
 cp "$HARNESS_DIR/scripts/extract-text-content.mjs" scripts/

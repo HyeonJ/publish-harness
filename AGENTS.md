@@ -36,7 +36,8 @@ skills or subagent frontmatter.
    `tokens.css`, `fonts.css`, `tailwind.config.*`, `docs/components-spec.md`,
    and any path listed in `scripts/write-protected-paths.json`.
 7. Do not commit until the relevant gates pass through
-   `bash scripts/measure-quality.sh <section> <section-dir>`.
+   `npm.cmd run quality -- <section> <section-dir>` on Windows PowerShell or
+   `npm run quality -- <section> <section-dir>` elsewhere.
    Gate order is shared with Claude:
    `G10 -> G4 -> G11 -> G12 -> G5 -> G6/G8 -> G7 -> G1`.
    G1 visual regression runs last against the finished preview.
@@ -114,4 +115,3 @@ ambiguous visual reasoning, and repeated gate failures.
 `.claude/` is Claude-specific. Do not edit it while doing normal Codex section
 work unless the task is explicitly about changing Claude support. Shared logic
 belongs in scripts, templates, docs, and gates.
-

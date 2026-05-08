@@ -113,6 +113,8 @@ const scripts = [
   "prepare-baseline.mjs",
   "progress-render.mjs",
   "progress-update.mjs",
+  "report-anchor-mapping.mjs",
+  "run-bash-script.mjs",
   "setup-figma-token.sh",
   "status.mjs",
   "verify-publishing-complete.mjs",
@@ -131,7 +133,9 @@ if (existsSync(packagePath)) {
   pkg.scripts["verify:gates"] = pkg.scripts["verify:gates"] || "node scripts/verify-publishing-complete.mjs";
   pkg.scripts["verify:publishing"] = "node scripts/assert-completion-contract.mjs";
   pkg.scripts["complete:publishing"] = pkg.scripts["complete:publishing"] || "node scripts/assert-completion-contract.mjs";
-  pkg.scripts.quality = pkg.scripts.quality || "bash scripts/measure-quality.sh";
+  if (!pkg.scripts.quality || pkg.scripts.quality === "bash scripts/measure-quality.sh") {
+    pkg.scripts.quality = "node scripts/run-bash-script.mjs scripts/measure-quality.sh";
+  }
   pkg.devDependencies = pkg.devDependencies || {};
   pkg.devDependencies["@lhci/cli"] = pkg.devDependencies["@lhci/cli"] || "^0.14.0";
   pkg.devDependencies.lighthouse = pkg.devDependencies.lighthouse || "^12.2.1";

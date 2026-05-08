@@ -94,3 +94,117 @@ test("accepts ProjectCard with explicit logo sizing metadata", () => {
   const json = JSON.parse(result.stdout);
   assert.ok(!json.failures.some((failure) => failure.code === "PROJECT_CARD_NO_LOGO_NORMALIZATION"));
 });
+
+test("fails full-section Figma raster backdrops without structural pixel mirror opt-in", () => {
+  const cwd = makeFixture("");
+  writeFileSync(join(cwd, "src", "components", "sections", "Hero.tsx"), `
+import sectionRaster from "./figma-section-home.png";
+export function Hero(){
+  return <section><img src={sectionRaster} style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }} /></section>;
+}
+`, "utf8");
+  const result = spawnSync(process.execPath, [script, "--section", "home", "--dir", "src/components/sections"], { cwd, encoding: "utf8" });
+  assert.notEqual(result.status, 0);
+  const json = JSON.parse(result.stdout);
+  assert.ok(json.failures.some((failure) => failure.code === "SECTION_RASTER_FINAL_BLOCKED"));
+});
+
+test("does not let one pixel mirror boundary exempt unrelated sibling hidden anchors", () => {
+  const cwd = makeFixture("");
+  writeFileSync(join(cwd, "src", "components", "sections", "Hero.tsx"), `
+export function Hero(){
+  return <>
+    <PixelMirrorSection data-pixel-mirror="Home/section-1" pixelMirrorReason="temporary mirror"><div /></PixelMirrorSection>
+    <span data-anchor="Home/title" style={{ opacity: 0 }}>Title</span>
+  </>;
+}
+`, "utf8");
+  const result = spawnSync(process.execPath, [script, "--section", "home", "--dir", "src/components/sections"], { cwd, encoding: "utf8" });
+  assert.notEqual(result.status, 0);
+  const json = JSON.parse(result.stdout);
+  assert.ok(json.failures.some((failure) => failure.code === "HIDDEN_ANCHOR_WITHOUT_OPT_IN"));
+});
+
+test("fails hidden anchor geometry inside a structural pixel mirror boundary by default", () => {
+  const cwd = makeFixture("");
+  writeFileSync(join(cwd, "src", "components", "sections", "Hero.tsx"), `
+export function Hero(){
+  return <PixelMirrorSection data-pixel-mirror="Home/section-1" pixelMirrorReason="temporary mirror">
+    <HiddenAnchorLayer>
+      <span data-anchor="Home/title" style={{ opacity: 0 }}>Title</span>
+    </HiddenAnchorLayer>
+  </PixelMirrorSection>;
+}
+`, "utf8");
+  const result = spawnSync(process.execPath, [script, "--section", "home", "--dir", "src/components/sections"], { cwd, encoding: "utf8" });
+  assert.notEqual(result.status, 0);
+  const json = JSON.parse(result.stdout);
+  assert.ok(json.failures.some((failure) => failure.code === "PIXEL_MIRROR_FINAL_BLOCKED"));
+  assert.ok(json.failures.some((failure) => failure.code === "HIDDEN_ANCHOR_LAYER_FINAL_BLOCKED"));
+});
+
+test("fails full-section raster inside a pixel mirror boundary by default", () => {
+  const cwd = makeFixture("");
+  writeFileSync(join(cwd, "src", "components", "sections", "Hero.tsx"), `
+import sectionRaster from "./figma-section-home.png";
+export function Hero(){
+  return <PixelMirrorSection data-pixel-mirror="Home/section-1">
+    <img src={sectionRaster} style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }} />
+  </PixelMirrorSection>;
+}
+`, "utf8");
+  const result = spawnSync(process.execPath, [script, "--section", "home", "--dir", "src/components/sections"], { cwd, encoding: "utf8" });
+  assert.notEqual(result.status, 0);
+  const json = JSON.parse(result.stdout);
+  assert.ok(json.failures.some((failure) => failure.code === "PIXEL_MIRROR_FINAL_BLOCKED"));
+  assert.ok(json.failures.some((failure) => failure.code === "SECTION_RASTER_FINAL_BLOCKED"));
+});
+
+test("fails full-section raster imports even without pixel mirror naming", () => {
+  const cwd = makeFixture("");
+  writeFileSync(join(cwd, "src", "components", "sections", "Hero.tsx"), `
+import pageShot from "./figma-section-home.png";
+export function Hero(){
+  return <main><img src={pageShot} alt="" aria-hidden="true" /></main>;
+}
+`, "utf8");
+  const result = spawnSync(process.execPath, [script, "--section", "home", "--dir", "src/components/sections"], { cwd, encoding: "utf8" });
+  assert.notEqual(result.status, 0);
+  const json = JSON.parse(result.stdout);
+  assert.ok(json.failures.some((failure) => failure.code === "SECTION_RASTER_IMPORT_FINAL_BLOCKED"));
+  assert.ok(json.failures.some((failure) => failure.code === "RASTER_DOM_SHELL_TOO_THIN"));
+});
+
+test("fails FigmaAnchorOverlay in final React output", () => {
+  const cwd = makeFixture("");
+  writeFileSync(join(cwd, "src", "components", "sections", "Hero.tsx"), `
+export function Hero(){
+  return <section><FigmaAnchorOverlay anchors={[]} /></section>;
+}
+`, "utf8");
+  const result = spawnSync(process.execPath, [script, "--section", "home", "--dir", "src/components/sections"], { cwd, encoding: "utf8" });
+  assert.notEqual(result.status, 0);
+  const json = JSON.parse(result.stdout);
+  assert.ok(json.failures.some((failure) => failure.code === "FIGMA_ANCHOR_OVERLAY_FINAL_BLOCKED"));
+});
+
+test("fails anchors hidden by CSS classes outside pixel mirror boundaries", () => {
+  const cwd = makeFixture(".anchor-hidden { opacity: 0; }\n");
+  writeFileSync(join(cwd, "src", "components", "sections", "Hero.tsx"), `
+export function Hero(){
+  return <span data-anchor="Home/title" className="anchor-hidden">Title</span>;
+}
+`, "utf8");
+  const result = spawnSync(process.execPath, [script, "--section", "home", "--dir", "src/components/sections"], { cwd, encoding: "utf8" });
+  assert.notEqual(result.status, 0);
+  const json = JSON.parse(result.stdout);
+  assert.ok(json.failures.some((failure) => failure.code === "HIDDEN_ANCHOR_CLASS_WITHOUT_OPT_IN"));
+});
+
+test("fails CSS full-section raster backdrops without pixel mirror policy", () => {
+  const cwd = makeFixture(".section-raster { position: absolute; inset: 0; background-image: url('./figma-section-home.png'); background-size: cover; }\n");
+  const result = spawnSync(process.execPath, [script, "--section", "home", "--dir", "src/components/sections"], { cwd, encoding: "utf8" });
+  assert.notEqual(result.status, 0);
+  const json = JSON.parse(result.stdout);
+  assert.ok(json.failures.some((failure) => failure.code === "CSS_SECTION_RASTER_FINAL_BLOCKED"));
+});

@@ -92,7 +92,20 @@ fi
 # 도 같이 raster 화 → 이중 렌더 사고. leaf image node (RECTANGLE/VECTOR/INSTANCE)
 # 만 허용. 정당한 frame fill IMAGE 케이스 (회고 F7) 는 ALLOW_FRAME=1 로 우회.
 NODES_URL="https://api.figma.com/v1/files/${FILE_KEY}/nodes?ids=${NODE_ID}&depth=0"
-NODES_JSON=$(curl -sS -H "X-Figma-Token: ${FIGMA_TOKEN}" "$NODES_URL")
+NODES_BODY="$(mktemp)"
+NODES_HTTP=$(curl -sS -o "$NODES_BODY" -w "%{http_code}" -H "X-Figma-Token: ${FIGMA_TOKEN}" "$NODES_URL")
+NODES_JSON=$(cat "$NODES_BODY")
+rm -f "$NODES_BODY"
+if [ "$NODES_HTTP" = "401" ] || [ "$NODES_HTTP" = "403" ]; then
+  echo "ERROR: Figma REST auth failed HTTP $NODES_HTTP for node metadata. Check FIGMA_TOKEN and file access; preview screenshot baseline fallback is forbidden." >&2
+  echo "  URL: $NODES_URL" >&2
+  exit 3
+elif [ "$NODES_HTTP" -lt 200 ] || [ "$NODES_HTTP" -ge 300 ]; then
+  echo "ERROR: Figma REST node metadata failed HTTP $NODES_HTTP" >&2
+  echo "  URL: $NODES_URL" >&2
+  echo "  Response: $NODES_JSON" >&2
+  exit 3
+fi
 NODE_TYPE=$(echo "$NODES_JSON" | node -e "
 let j='';
 process.stdin.on('data',d=>j+=d);
@@ -131,7 +144,20 @@ IMAGES_URL="https://api.figma.com/v1/images/${FILE_KEY}?ids=${NODE_ID}&format=${
 
 echo "[figma-rest-image] fetch S3 URL: ${NODE_ID} scale=${SCALE} format=${FORMAT}${NODE_TYPE:+ type=${NODE_TYPE}}"
 
-API_JSON=$(curl -sS -H "X-Figma-Token: ${FIGMA_TOKEN}" "$IMAGES_URL")
+API_BODY="$(mktemp)"
+API_HTTP=$(curl -sS -o "$API_BODY" -w "%{http_code}" -H "X-Figma-Token: ${FIGMA_TOKEN}" "$IMAGES_URL")
+API_JSON=$(cat "$API_BODY")
+rm -f "$API_BODY"
+if [ "$API_HTTP" = "401" ] || [ "$API_HTTP" = "403" ]; then
+  echo "ERROR: Figma REST auth failed HTTP $API_HTTP for image export. Check FIGMA_TOKEN and file access; preview screenshot baseline fallback is forbidden." >&2
+  echo "  URL: $IMAGES_URL" >&2
+  exit 3
+elif [ "$API_HTTP" -lt 200 ] || [ "$API_HTTP" -ge 300 ]; then
+  echo "ERROR: Figma REST image export failed HTTP $API_HTTP" >&2
+  echo "  URL: $IMAGES_URL" >&2
+  echo "  Response: $API_JSON" >&2
+  exit 3
+fi
 # 에러 포착 규칙:
 #   1. Figma API 는 에러 시 { err: "msg" } 또는 { status: 4xx/5xx, err?: "..." }
 #   2. 본문이 HTML/평문이면 JSON.parse 실패 → parse-error 로 표기 (curl/Cloudflare 중간 실패)
@@ -187,3 +213,24 @@ fi
 
 SIZE=$(stat -c %s "$OUT_PATH" 2>/dev/null || stat -f %z "$OUT_PATH" 2>/dev/null || echo "?")
 echo "[figma-rest-image] OK ${OUT_PATH} (${SIZE} bytes)"
+
+SHA256=$(node -e "const {createHash}=require('crypto'); const {readFileSync}=require('fs'); process.stdout.write(createHash('sha256').update(readFileSync(process.argv[1])).digest('hex'))" "$OUT_PATH")
+PROVENANCE_PATH="${OUT_PATH}.provenance.json"
+node - "$PROVENANCE_PATH" "$FILE_KEY" "$NODE_ID" "$OUT_PATH" "$SHA256" "$FORMAT" "$SCALE" "$NODE_TYPE" <<'NODE'
+const { writeFileSync } = require("fs");
+const [path, fileKey, nodeId, outputPath, sha256, format, scale, nodeType] = process.argv.slice(2);
+const provenance = {
+  version: 1,
+  source: "figma-rest",
+  fileKey,
+  nodeId,
+  outputPath,
+  sha256,
+  format,
+  scale: Number(scale),
+  nodeType: nodeType || null,
+  fetchedAt: new Date().toISOString(),
+};
+writeFileSync(path, JSON.stringify(provenance, null, 2) + "\n");
+NODE
+echo "[figma-rest-image] provenance ${PROVENANCE_PATH}"

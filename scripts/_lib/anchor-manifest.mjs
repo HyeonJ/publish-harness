@@ -24,6 +24,13 @@
  *       bbox: { x, y, w, h }          // figma 절대좌표 (절대 viewport 좌표 X). normalize 는
  *                                     //   check-visual-regression.mjs 의 L2 단계에서 figmaPageWidth
  *                                     //   기준으로 자동 처리.
+ *       typography?: {                // TEXT node only. Used for design-font diagnostics.
+ *         characters: string,
+ *         fontFamily: string | null,
+ *         fontWeight: number | null,
+ *         fontSize: number | null,
+ *         fontStyle: string | null
+ *       }
  *     }
  *   ]
  * }
@@ -109,37 +116,37 @@ export function unknownRoleRatio(manifest) {
 }
 
 /**
- * 매칭 룰 (개수별):
+ * 매칭 룰:
  * - required: 100% 강제 (모든 required 가 매칭되어야 함)
- * - optional ≤ 5: all required (zero missing)
- * - optional 6~10: 1 missing OK
- * - optional > 10: 2 missing OK
+ * - optional: semantic React publishing 에서는 diagnostic 으로만 처리.
+ *   전체 Figma frame manifest 는 decorative/duplicate optional anchor 가 많아,
+ *   required 100% 이후에도 optional 누락을 차단하면 anchor mapping 단계가
+ *   visual tuning 을 가리는 false blocker 가 된다.
  *
  * @param {Array} required - required anchor 리스트
  * @param {Array} optional - optional anchor 리스트
  * @param {Set<string>} matchedIds - 코드에 매칭된 anchor id 집합
- * @returns {{pass: boolean, missing: Array, reason: string|null}}
+ * @returns {{pass: boolean, missing: Array, missingRequired: Array, missingOptional: Array, reason: string|null, warnings: Array}}
  */
 export function applyMatchingRule(required, optional, matchedIds) {
   const missingRequired = required.filter((a) => !matchedIds.has(a.id));
+  const missingOptional = optional.filter((a) => !matchedIds.has(a.id));
   if (missingRequired.length > 0) {
     return {
       pass: false,
       missing: missingRequired,
+      missingRequired,
+      missingOptional,
       reason: `required anchor missing: ${missingRequired.map((a) => a.id).join(", ")}`,
+      warnings: missingOptional.length ? [`optional anchors missing: ${missingOptional.length}`] : [],
     };
   }
-  const missingOptional = optional.filter((a) => !matchedIds.has(a.id));
-  let allowedMissing;
-  if (optional.length <= 5) allowedMissing = 0;
-  else if (optional.length <= 10) allowedMissing = 1;
-  else allowedMissing = 2;
-  if (missingOptional.length > allowedMissing) {
-    return {
-      pass: false,
-      missing: missingOptional,
-      reason: `optional anchor missing > allowed (${missingOptional.length} > ${allowedMissing})`,
-    };
-  }
-  return { pass: true, missing: missingOptional, reason: null };
+  return {
+    pass: true,
+    missing: missingOptional,
+    missingRequired,
+    missingOptional,
+    reason: null,
+    warnings: missingOptional.length ? [`optional anchors missing: ${missingOptional.length}`] : [],
+  };
 }

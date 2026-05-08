@@ -52,6 +52,13 @@ function getViewportEntries(g1) {
   return [];
 }
 
+function hasG12Code(quality, codes) {
+  const detail = quality?.G12_detail;
+  if (!detail || typeof detail !== "object") return false;
+  const items = [...(detail.failures || []), ...(detail.warnings || [])];
+  return items.some((item) => codes.has(item.code));
+}
+
 function hasNonEmptyField(text, label) {
   const re = new RegExp(`^-\\s*${label}:\\s*(.+)$`, "im");
   const match = text.match(re);
@@ -194,6 +201,24 @@ if (progress) {
       }
     }
 
+    if (isReactTemplate && hasG12Code(quality, new Set([
+      "PIXEL_MIRROR_FINAL_BLOCKED",
+      "SECTION_RASTER_FINAL_BLOCKED",
+      "CSS_SECTION_RASTER_FINAL_BLOCKED",
+      "HIDDEN_ANCHOR_LAYER_FINAL_BLOCKED",
+      "FIGMA_ANCHOR_OVERLAY_FINAL_BLOCKED",
+      "RASTER_BACKDROP_WITHOUT_OPT_IN",
+      "CSS_RASTER_BACKDROP_WITHOUT_OPT_IN",
+      "HIDDEN_ANCHOR_WITHOUT_OPT_IN",
+    ]))) {
+      fail(
+        failures,
+        "G12_PIXEL_MIRROR_OR_HIDDEN_ANCHOR_DEBT",
+        `${section.name} contains pixel-mirror/full-section raster or hidden-overlay anchor debt. Final publishing requires reusable visible React DOM/CSS with appropriate leaf rasters only.`,
+        qualityPath(section.name),
+      );
+    }
+
     if ("G7_lighthouse" in quality && gateStatus(quality.G7_lighthouse) === "FAIL") {
       fail(failures, "G7_FAILING", `${section.name} G7_lighthouse is FAIL.`, qualityPath(section.name));
     } else if ("G7_lighthouse" in quality && gateStatus(quality.G7_lighthouse) !== "PASS") {
@@ -215,6 +240,15 @@ if (progress) {
 
       const g1 = quality.G1_visual_regression;
       for (const [viewport, result] of getViewportEntries(g1)) {
+        const l1 = result?.l1;
+        if (process.env.G1_ENFORCE_L1_TARGET === "1" && l1 && Number(l1.targetGap || 0) > 0) {
+          fail(
+            failures,
+            "G1_L1_TARGET_NOT_MET",
+            `${section.name} ${viewport} L1 diff is ${l1.diffPercent}% with target ${l1.thresholdTarget}%; rerun G1 with G1_ENFORCE_L1_TARGET=1 and reduce the remaining ${l1.targetGap}% target gap.`,
+            qualityPath(section.name),
+          );
+        }
         const l2 = result?.l2;
         if (!l2 || l2.status === "SKIPPED") {
           fail(

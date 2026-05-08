@@ -8,7 +8,7 @@ const RULES = [
     code: 'BOOTSTRAP_REQUIRED',
     when: ({ progress }) => !progress,
     message: () => 'progress.json 이 없음. bootstrap.sh 가 실행되지 않았거나 잘못된 디렉토리입니다.',
-    recommendations: () => ['bash scripts/bootstrap.sh <figma-url> 또는 --mode spec --from-handoff <dir>'],
+    recommendations: () => ['node scripts/bootstrap.mjs <figma-url> 또는 --mode spec --from-handoff <dir>'],
   },
   {
     code: 'HARNESS_ADOPTION_INCOMPLETE',
@@ -26,13 +26,13 @@ const RULES = [
     code: 'FIGMA_TOKEN_MISSING',
     when: ({ progress, env }) => progress.project.mode === 'figma' && !env.FIGMA_TOKEN,
     message: () => 'figma 모드인데 FIGMA_TOKEN 환경변수 없음.',
-    recommendations: () => ['bash scripts/setup-figma-token.sh', 'export FIGMA_TOKEN=...'],
+    recommendations: () => ['node scripts/run-bash-script.mjs scripts/setup-figma-token.sh', 'export FIGMA_TOKEN=...'],
   },
   {
     code: 'TOKENS_MISSING',
     when: ({ progress, cwd }) => progress.project.mode === 'figma' && !existsSync(join(cwd || '.', 'src/styles/tokens.css')),
     message: () => 'src/styles/tokens.css 없음 — extract-tokens 미실행 / bootstrap 미완.',
-    recommendations: ({ progress }) => [`bash scripts/extract-tokens.sh ${progress.project.source?.fileKey || '<fileKey>'}`],
+    recommendations: ({ progress }) => [`node scripts/run-bash-script.mjs scripts/extract-tokens.sh ${progress.project.source?.fileKey || '<fileKey>'}`],
   },
   {
     code: 'DECOMPOSE_REQUIRED',

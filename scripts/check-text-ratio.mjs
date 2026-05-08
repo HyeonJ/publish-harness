@@ -29,6 +29,87 @@ const traverse = traverseModule.default ?? traverseModule;
 const TSX_JSX_EXTS = new Set([".tsx", ".jsx"]);
 const walk = (target, out) => walkByExt(target, TSX_JSX_EXTS, out);
 
+function jsxNameToString(name) {
+  if (!name) return "";
+  if (name.type === "JSXIdentifier") return name.name;
+  if (name.type === "JSXMemberExpression") {
+    return `${jsxNameToString(name.object)}.${jsxNameToString(name.property)}`;
+  }
+  return "";
+}
+
+function getJsxAttribute(opening, attrName) {
+  return opening.attributes?.find((attr) =>
+    attr.type === "JSXAttribute" && jsxNameToString(attr.name) === attrName
+  );
+}
+
+function jsxAttributeStringValue(attr) {
+  if (!attr?.value) return "";
+  if (attr.value.type === "StringLiteral") return attr.value.value || "";
+  if (attr.value.type === "JSXExpressionContainer") {
+    const expr = attr.value.expression;
+    if (expr?.type === "StringLiteral") return expr.value || "";
+    if (expr?.type === "BooleanLiteral") return String(expr.value);
+  }
+  return "";
+}
+
+function jsxAttributeBooleanValue(attr) {
+  if (!attr) return false;
+  if (!attr.value) return true;
+  if (attr.value.type === "StringLiteral") return attr.value.value === "true";
+  if (attr.value.type === "JSXExpressionContainer") {
+    const expr = attr.value.expression;
+    if (expr?.type === "BooleanLiteral") return expr.value;
+  }
+  return false;
+}
+
+function nodeSource(code, node) {
+  if (!node || typeof node.start !== "number" || typeof node.end !== "number") return "";
+  return code.slice(node.start, node.end);
+}
+
+function hasHiddenStyle(styleSource) {
+  return (
+    /opacity\s*:\s*0(?:\b|[\s,;}])/.test(styleSource) ||
+    /visibility\s*:\s*["']hidden["']/.test(styleSource) ||
+    /display\s*:\s*["']none["']/.test(styleSource) ||
+    /clipPath\s*:|clip-path\s*:/.test(styleSource) ||
+    /\b(?:left|right|top|bottom)\s*:\s*["']?-?\d{4,}(?:px|vw|vh|%)?/.test(styleSource)
+  );
+}
+
+function isHiddenOrProbeOpening(opening, code) {
+  const name = jsxNameToString(opening.name);
+  if (
+    name === "PixelMirrorSection" ||
+    name.endsWith(".PixelMirrorSection") ||
+    name === "HiddenAnchorLayer" ||
+    name.endsWith(".HiddenAnchorLayer") ||
+    name === "FigmaAnchorOverlay" ||
+    name.endsWith(".FigmaAnchorOverlay")
+  ) {
+    return true;
+  }
+  if (getJsxAttribute(opening, "hidden")) return true;
+  if (jsxAttributeBooleanValue(getJsxAttribute(opening, "aria-hidden"))) return true;
+  const className = jsxAttributeStringValue(getJsxAttribute(opening, "className")) ||
+    jsxAttributeStringValue(getJsxAttribute(opening, "class"));
+  if (/(?:font-text-probe|font-preload|hidden-anchor|figma-anchor|sr-only|visually-hidden)/i.test(className)) {
+    return true;
+  }
+  return hasHiddenStyle(nodeSource(code, getJsxAttribute(opening, "style")?.value));
+}
+
+function isInsideHiddenOrProbe(path, code) {
+  return path.getAncestry().some((ancestor) => {
+    if (!ancestor.isJSXElement?.()) return false;
+    return isHiddenOrProbeOpening(ancestor.node.openingElement, code);
+  });
+}
+
 function analyzeFile(file) {
   const code = readFileSync(file, "utf8");
   const ast = parse(code, {
@@ -47,12 +128,14 @@ function analyzeFile(file) {
       if (name?.type === "JSXIdentifier" && name.name === "img") imgCount++;
     },
     JSXText(path) {
+      if (isInsideHiddenOrProbe(path, code)) return;
       const raw = path.node.value.trim();
       if (raw.length === 0) return;
       textChars += raw.length;
       if (/[가-힣a-zA-Z]/.test(raw)) hasLiteralText = true;
     },
     JSXAttribute(path) {
+      if (isInsideHiddenOrProbe(path, code)) return;
       const name = path.node.name?.name;
       if (name !== "alt" && name !== "aria-label" && name !== "title") return;
       const v = path.node.value;
@@ -107,6 +190,7 @@ function analyzeFile(file) {
       }
     },
     JSXExpressionContainer(path) {
+      if (isInsideHiddenOrProbe(path, code)) return;
       const expr = path.node.expression;
       if (expr?.type === "StringLiteral") {
         const raw = expr.value.trim();

@@ -94,7 +94,8 @@ export function attachConsoleErrorCollector(page, { ignorePatterns = [] } = {}) 
  *
  * 검증 항목:
  *   1. console / pageerror 0건 (woff2 OTS / 404 / decode 등)
- *   2. 사용 폰트 family 가 모두 document.fonts 에 등록되었는지 (link/font-face 누락 차단)
+ *   2. primary 사용 폰트가 document.fonts 에 등록되었는지 확인하고,
+ *      OS/system/emoji fallback 은 실패가 아닌 diagnostic 으로 분리.
  *
  * fonts.ready 대기는 stabilizePage 가 이미 처리.
  *
@@ -122,28 +123,124 @@ export async function assertEnvironmentClean({ page, errors, section = "?", view
   if (checkFonts) {
     const result = await page.evaluate(() => {
       const GENERIC = new Set(["serif", "sans-serif", "monospace", "system-ui", "ui-serif", "ui-sans-serif", "ui-monospace", "ui-rounded", "cursive", "fantasy", "inherit", "initial", "revert", "unset", "-apple-system", "blinkmacsystemfont"]);
+      const SYSTEM_FALLBACK = new Set([
+        "arial",
+        "apple color emoji",
+        "apple sd gothic neo",
+        "courier new",
+        "georgia",
+        "helvetica",
+        "malgun gothic",
+        "meiryo",
+        "microsoft jhenghei",
+        "microsoft yahei",
+        "ms gothic",
+        "ms pgothic",
+        "noto color emoji",
+        "noto sans cjk jp",
+        "noto sans cjk kr",
+        "noto sans cjk sc",
+        "noto sans cjk tc",
+        "noto sans jp",
+        "noto sans kr",
+        "noto sans sc",
+        "noto sans symbols",
+        "noto sans symbols 2",
+        "segoe ui",
+        "segoe ui emoji",
+        "segoe ui symbol",
+        "simsun",
+        "tahoma",
+        "times new roman",
+        "trebuchet ms",
+        "twemoji mozilla",
+        "verdana",
+        "맑은 고딕",
+      ]);
       const stripQuotes = (s) => s.trim().replace(/^['"]|['"]$/g, "");
-      const used = new Set();
+      const splitFontFamilies = (value) => {
+        const out = [];
+        let cur = "";
+        let quote = null;
+        for (const ch of value) {
+          if ((ch === '"' || ch === "'") && !quote) {
+            quote = ch;
+            cur += ch;
+            continue;
+          }
+          if (quote && ch === quote) {
+            quote = null;
+            cur += ch;
+            continue;
+          }
+          if (ch === "," && !quote) {
+            out.push(stripQuotes(cur));
+            cur = "";
+            continue;
+          }
+          cur += ch;
+        }
+        if (cur.trim()) out.push(stripQuotes(cur));
+        return out.filter(Boolean);
+      };
+      const normalize = (s) => stripQuotes(s).toLowerCase();
+      const isGeneric = (name) => GENERIC.has(normalize(name));
+      const isSystemFallback = (name) => SYSTEM_FALLBACK.has(normalize(name));
+      const sampleText = (el) => (el.textContent || "").replace(/\s+/g, " ").trim().slice(0, 80);
+      const primaryUsed = new Map();
+      const fallbackUsed = new Map();
+      const allUsed = new Set();
+      const addSample = (map, family, el) => {
+        const key = stripQuotes(family);
+        if (!key) return;
+        const cur = map.get(key) || { family: key, count: 0, samples: [] };
+        cur.count += 1;
+        const text = sampleText(el);
+        if (text && cur.samples.length < 3) cur.samples.push({ tag: el.tagName, text });
+        map.set(key, cur);
+      };
       for (const el of document.querySelectorAll("*")) {
-        const f = getComputedStyle(el).fontFamily;
-        if (!f) continue;
-        for (const name of f.split(",")) {
-          const clean = stripQuotes(name);
-          if (!GENERIC.has(clean.toLowerCase()) && clean.length > 0) used.add(clean);
+        const familyStack = splitFontFamilies(getComputedStyle(el).fontFamily || "");
+        const meaningful = familyStack.filter((name) => !isGeneric(name));
+        if (!meaningful.length) continue;
+        meaningful.forEach((name) => allUsed.add(name));
+        addSample(primaryUsed, meaningful[0], el);
+        for (const name of meaningful.slice(1)) {
+          addSample(fallbackUsed, name, el);
         }
       }
       const loaded = new Set();
+      const failedFaces = [];
       for (const f of document.fonts) {
         if (f.status === "loaded") loaded.add(stripQuotes(f.family));
+        else failedFaces.push({ family: stripQuotes(f.family), status: f.status, weight: f.weight, style: f.style });
       }
-      const missing = [...used].filter((u) => !loaded.has(u));
-      return { used: [...used], loaded: [...loaded], missing };
+      const loadedLower = new Set([...loaded].map((name) => normalize(name)));
+      const primaryMissing = [...primaryUsed.values()]
+        .filter((entry) => !loadedLower.has(normalize(entry.family)) && !isSystemFallback(entry.family));
+      const fallbackDiagnostics = [...fallbackUsed.values()]
+        .filter((entry) => !loadedLower.has(normalize(entry.family)))
+        .map((entry) => ({ ...entry, systemFallback: isSystemFallback(entry.family) }));
+      return {
+        used: [...allUsed],
+        loaded: [...loaded],
+        failedFaces,
+        primaryMissing,
+        fallbackDiagnostics,
+      };
     });
-    if (result.missing.length > 0) {
+    if (result.failedFaces.length > 0 || result.primaryMissing.length > 0) {
+      const faceLines = result.failedFaces.map((f) => `  - ${f.family} (${f.weight || "?"}/${f.style || "?"}) status=${f.status}`);
+      const primaryLines = result.primaryMissing.map((f) => {
+        const sample = f.samples?.[0] ? ` sample=<${f.samples[0].tag}> "${f.samples[0].text}"` : "";
+        return `  - ${f.family} (${f.count} elements)${sample}`;
+      });
       throw new Error(
-        `[env-sanity] section=${section} viewport=${viewport} 폰트 등록 누락 ${result.missing.length}건: ${result.missing.join(", ")}\n` +
-          `(사용된 family 중 document.fonts 에 'loaded' 상태로 등록 안 된 것)\n` +
-          `→ index.html <link> 또는 fonts.css @font-face 추가 후 baseline 재캡처 필요.`
+        `[env-sanity] section=${section} viewport=${viewport} 폰트 환경 실패\n` +
+          (faceLines.length ? `document.fonts failed/loading faces:\n${faceLines.join("\n")}\n` : "") +
+          (primaryLines.length ? `primary font 등록 누락:\n${primaryLines.join("\n")}\n` : "") +
+          `fallback stack 의 OS/emoji/CJK family 는 FAIL 이 아니라 diagnostic 으로만 취급합니다.\n` +
+          `→ primary webfont 는 index.html <link> 또는 fonts.css @font-face 로 로드해야 합니다.`
       );
     }
   }
