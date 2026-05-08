@@ -12,6 +12,8 @@ const PHASE_LABEL = {
 
 function statusIcon(s) {
   if (s.status === 'done') return '[x]';
+  if (s.status === 'iterating') return '[>]';
+  if (s.status === 'stalled') return '[s]';
   if (s.status === 'blocked' || s.needsHuman) return '[!]';
   if (s.status === 'skipped') return '[~]';
   return '[ ]';
@@ -21,6 +23,14 @@ function sectionLine(s) {
   const icon = statusIcon(s);
   const meta = [];
   if (s.retryCount > 0 && s.status !== 'done') meta.push(`retry ${s.retryCount}`);
+  if (s.iteration && s.status !== 'done') {
+    const parts = [];
+    if (s.iteration.outcome) parts.push(s.iteration.outcome);
+    if (Number.isFinite(s.iteration.latestL1)) parts.push(`L1 ${s.iteration.latestL1}%`);
+    if (Number.isFinite(s.iteration.improvement)) parts.push(`improvement ${s.iteration.improvement}%`);
+    if (Number.isFinite(s.iteration.attempts)) parts.push(`attempts ${s.iteration.attempts}`);
+    if (parts.length) meta.push(`G1 ${parts.join(', ')}`);
+  }
   if (s.needsHuman) meta.push('needs human');
   const suffix = meta.length ? ` _(${meta.join(', ')})_` : '';
   return `- ${icon} ${s.name}${suffix}`;

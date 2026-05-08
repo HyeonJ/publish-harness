@@ -35,3 +35,14 @@ test('suggest blocked → human intervention', () => {
   const out = suggest({ progress: fx, env: { FIGMA_TOKEN: 'x' } });
   assert.match(out.action, /재분할|수동|개입|blocked|재시도|skipped/i);
 });
+
+test('suggest iterating section as next work', () => {
+  const fx = load('phase3-mid');
+  fx.project.mode = 'spec';
+  fx.sections[1].status = 'iterating';
+  fx.sections[1].iteration = { outcome: 'converging', latestL1: 13.2 };
+  const out = suggest({ progress: fx, env: { FIGMA_TOKEN: 'x' } });
+  assert.equal(out.code, 'WORK_NEXT');
+  assert.equal(out.target, 'home-features');
+  assert.match(out.action, /iterating/);
+});

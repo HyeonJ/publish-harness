@@ -6,6 +6,8 @@
   "type": "module",
   "scripts": {
     "test:gates": "node scripts/check-token-usage-html.mjs tests/fixtures/html-static/g4-pass.html tests/fixtures/html-static/g4-pass.css && node scripts/check-text-ratio-html.mjs tests/fixtures/html-static/g6-pass.html && node scripts/run-bash-script.mjs scripts/test-strict-gates.sh",
+    "test:diff-triage": "node --test tests/diff-triage.test.mjs",
+    "test:progress": "node --test tests/progress/*.test.mjs",
     "test:text-ratio": "node --test tests/check-text-ratio.test.mjs",
     "test:verify": "node --test tests/verify-publishing-complete.test.mjs",
     "test:reusability": "node --test tests/check-react-reusability.test.mjs",

@@ -60,3 +60,15 @@ test('diagnose phase3-mid with normal pending → OK_PROCEED', () => {
   const d = diagnose({ progress: fx, env: { FIGMA_TOKEN: 'x' } });
   assert.equal(d.code, 'OK_PROCEED');
 });
+
+test('diagnose stalled G1 refinement loop as blocked', () => {
+  const fx = load('phase3-mid');
+  fx.project.mode = 'spec';
+  fx.sections[1].status = 'stalled';
+  fx.sections[1].needsHuman = true;
+  fx.sections[1].iteration = { latestL1: 12.1, outcome: 'stalled' };
+  const d = diagnose({ progress: fx, env: { FIGMA_TOKEN: 'x' } });
+  assert.equal(d.code, 'SECTION_BLOCKED');
+  assert.match(d.message, /G1 refinement loop/);
+  assert.match(d.recommendations.join(' '), /diff-triage/);
+});

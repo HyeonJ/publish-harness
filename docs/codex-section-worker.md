@@ -249,6 +249,70 @@ node scripts/report-anchor-mapping.mjs --manifest baselines/<section>/anchors-de
 Required anchors are blocking. Optional anchors are diagnostics; never add
 hidden dummy nodes just to satisfy optional coverage.
 
+### G1 Refinement Loop
+
+G1 is allowed to start above the final target. A first honest reusable DOM
+implementation may be 20%+ different from Figma. The required behavior is
+measured convergence, not a one-shot perfect result and not a raster fallback.
+
+When all non-G1 gates pass and G1 fails:
+
+1. Do not guess from the diff image alone.
+2. Run triage:
+
+   ```bash
+   node scripts/diff-triage.mjs --section <section> --viewport desktop --quality tests/quality/<section>.json
+   ```
+
+3. Read `nextAction.kind`, `nextAction.summary`, and `nextAction.hints`.
+4. Apply exactly one focused patch for the first actionable hint.
+5. Do not add full-page/full-section/full-card rasters, hidden anchors,
+   `FigmaAnchorOverlay`, hidden text probes, or rasterized text to reduce L1.
+   G12/G6/G8 treat that as a final blocker.
+6. Rerun quality:
+
+   ```bash
+   npm.cmd run quality -- <section> <section-dir>
+   ```
+
+7. Inspect `tests/quality/iterations/<section>-desktop.json`. Each G1 run
+   records `l1`, compact `l2`, `improvement`, and `outcome`.
+
+`summary.outcome` is progress telemetry. `nextAction.kind` is the next patch
+branch. They can differ: for example, L1 may be `converging` while the next
+patch is still `required-anchor-missing`. Use `nextAction.kind` for the
+immediate edit, and use `summary.outcome` to decide whether to continue,
+review, or block.
+
+Iteration outcomes:
+
+- `converging`: L1 is improving by at least `G1_STALL_THRESHOLD` percentage
+  points, default `0.5`. Continue with the next triage action.
+- `iterating`: not enough evidence yet. Continue with triage.
+- `regressed`: the latest run got meaningfully worse. Revert only your own last
+  patch or choose a different triage action; do not keep tuning the same knob.
+- `stalled`: recent L1 improvements are below the threshold. Stop repeating
+  small visual tuning. Re-check layout model, baseline/asset correctness, or
+  request review.
+- `abandoned`: max iteration budget reached while stalled/regressed. Mark the
+  section blocked and document the remaining evidence.
+- `converged`: L1 target gap is zero and L2 passes. Continue final verification.
+
+Default knobs:
+
+- `G1_STALL_THRESHOLD=0.5`
+- `G1_MAX_ITERATIONS=5`
+- figma mode exports `G1_ENFORCE_L1_TARGET=1` by default, so final G1 target is
+  the long-term target, currently 5%.
+
+`diff-triage.mjs` next action kinds are intentionally ordered. Fix non-G1 gates
+first, then required anchor coverage, then structural drift, then text/asset
+details, then residual L1. If it returns `trajectory-stalled`, do not make
+another micro-tuning patch before reviewing the layout/baseline/asset premise.
+For multi-viewport G1, triage the first failing viewport in the G1 JSON. Desktop
+usually gives the broadest structural signal; once desktop converges, repeat
+the same loop for tablet/mobile failures.
+
 When G1 fails, read the mapping report in this order:
 
 1. Required coverage. If `requiredMatched` is `0`, map required anchors first.
@@ -469,7 +533,11 @@ incomplete.
 
 - First failure: fix the reported category directly.
 - Second failure in the same category: change approach, not just values.
-- Repeated G1/G11 failures: escalate to the stronger model policy in
+- Repeated G1 failures: use the G1 Refinement Loop above. If
+  `summary.outcome` is `stalled` or `abandoned`, stop micro-tuning, document
+  the remaining evidence, mark the section blocked, and then consider the
+  stronger model policy in `docs/codex-model-policy.md` or a section split.
+- Repeated G11 failures: escalate to the stronger model policy in
   `docs/codex-model-policy.md` or split the section.
 - When blocked, mark the section with `progress-update set-section` rather than
   editing `PROGRESS.md`.

@@ -1,7 +1,7 @@
 import { mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 
-const VALID_STATUS = new Set(['pending', 'in_progress', 'done', 'blocked', 'skipped']);
+const VALID_STATUS = new Set(['pending', 'in_progress', 'iterating', 'stalled', 'done', 'blocked', 'skipped']);
 const VALID_KIND = new Set(['section', 'component']);
 const VALID_MODE = new Set(['figma', 'spec']);
 const VALID_TEMPLATE = new Set(['vite-react-ts', 'html-static', 'nextjs-app-router']);
@@ -111,7 +111,7 @@ export function addSection(obj, { name, page, kind }) {
 export function setSectionStatus(obj, name, status) {
   const s = obj.sections.find((x) => x.name === name);
   if (!s) throw new Error(`section not found: ${name}`);
-  if (!['pending', 'in_progress', 'done', 'blocked', 'skipped'].includes(status)) {
+  if (!VALID_STATUS.has(status)) {
     throw new Error(`invalid status: ${status}`);
   }
   s.status = status;
@@ -126,9 +126,9 @@ export function syncPageStatuses(obj) {
     if (!sections.length) continue;
     if (sections.every((section) => section.status === 'done' || section.status === 'skipped')) {
       page.status = 'done';
-    } else if (sections.some((section) => section.status === 'blocked')) {
+    } else if (sections.some((section) => section.status === 'blocked' || section.status === 'stalled')) {
       page.status = 'blocked';
-    } else if (sections.some((section) => section.status === 'in_progress')) {
+    } else if (sections.some((section) => section.status === 'in_progress' || section.status === 'iterating')) {
       page.status = 'in_progress';
     } else {
       page.status = 'pending';
@@ -147,7 +147,27 @@ export function recordGateResult(obj, name, result) {
   if (result.passed) {
     s.status = 'done';
     delete s.needsHuman;
+    delete s.iteration;
+  } else if (result.iteration?.g1Only) {
+    s.iteration = {
+      ...(s.iteration || {}),
+      ...result.iteration,
+      updatedAt: new Date().toISOString(),
+    };
+    s.lastGateResult = {
+      passed: false,
+      gates: result.gates || {},
+      timestamp: new Date().toISOString(),
+    };
+    if (result.iteration.stalled || result.iteration.outcome === 'stalled' || result.iteration.outcome === 'abandoned') {
+      s.status = 'stalled';
+      s.needsHuman = true;
+    } else {
+      s.status = 'iterating';
+      delete s.needsHuman;
+    }
   } else {
+    delete s.iteration;
     const categories = [...new Set((result.failures || []).map((f) => f.category))];
     s.failureHistory.push({ attempt: s.retryCount, categories, count: (result.failures || []).length });
     s.retryCount += 1;
@@ -227,10 +247,37 @@ export function adaptMeasureQualityResult(mqResult) {
       });
     }
   }
+  const viewportResults = mqResult.G1_visual_regression?.viewports
+    ? Object.values(mqResult.G1_visual_regression.viewports)
+    : mqResult.G1_visual_regression?.l1 || mqResult.G1_visual_regression?.l2 || mqResult.G1_visual_regression?.iteration
+      ? [mqResult.G1_visual_regression]
+      : [];
+  const g1IterationSource = viewportResults.find((item) => item?.iteration) || null;
+  const g1Iteration = g1IterationSource?.iteration || null;
+  const g1Only = failures.length === 1 && failures[0].gate === 'G1';
   return {
     passed: failures.length === 0,
     gates,
     failures,
+    ...(g1Only && g1Iteration ? {
+      iteration: {
+        g1Only: true,
+        viewport: g1IterationSource.viewport || mqResult.viewport || 'desktop',
+        outcome: g1Iteration.outcome || g1Iteration.summary?.outcome || null,
+        attempts: g1Iteration.attempts ?? g1Iteration.summary?.attempts ?? null,
+        latestL1: g1Iteration.latestL1 ?? g1Iteration.summary?.latestL1 ?? null,
+        previousL1: g1Iteration.previousL1 ?? g1Iteration.summary?.previousL1 ?? null,
+        improvement: g1Iteration.improvement ?? g1Iteration.summary?.improvement ?? null,
+        monotonic: g1Iteration.monotonic ?? g1Iteration.summary?.monotonic ?? null,
+        stallThreshold: g1Iteration.stallThreshold ?? g1Iteration.summary?.stallThreshold ?? null,
+        maxIterations: g1Iteration.maxIterations ?? g1Iteration.summary?.maxIterations ?? null,
+        stalled: g1Iteration.stalled ?? g1Iteration.summary?.stalled ?? false,
+        regressed: g1Iteration.regressed ?? g1Iteration.summary?.regressed ?? false,
+        converged: g1Iteration.converged ?? g1Iteration.summary?.converged ?? false,
+        abandoned: g1Iteration.abandoned ?? g1Iteration.summary?.abandoned ?? false,
+        path: g1Iteration.path || null,
+      },
+    } : {}),
   };
 }
 

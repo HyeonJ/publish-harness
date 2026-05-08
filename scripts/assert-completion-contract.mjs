@@ -108,7 +108,23 @@ if (!existsSync(join(process.cwd(), "progress.json"))) {
     }
     for (const section of progress.sections || []) {
       if (section.status !== "skipped" && section.status !== "done") {
-        fail(failures, "SECTION_NOT_DONE", `Section "${section.name}" is ${section.status || "MISSING"}.`, "progress.json");
+        if (section.status === "iterating") {
+          fail(
+            failures,
+            "SECTION_G1_ITERATING",
+            `Section "${section.name}" is still iterating G1${section.iteration?.latestL1 != null ? ` at L1 ${section.iteration.latestL1}%` : ""}.`,
+            "progress.json",
+          );
+        } else if (section.status === "stalled") {
+          fail(
+            failures,
+            "SECTION_G1_STALLED",
+            `Section "${section.name}" G1 refinement stalled${section.iteration?.latestL1 != null ? ` at L1 ${section.iteration.latestL1}%` : ""}.`,
+            "progress.json",
+          );
+        } else {
+          fail(failures, "SECTION_NOT_DONE", `Section "${section.name}" is ${section.status || "MISSING"}.`, "progress.json");
+        }
       }
       if (section.status === "done" && section.lastGateResult?.passed !== true) {
         fail(failures, "SECTION_DONE_WITHOUT_PASSING_GATES", `Section "${section.name}" is done but lastGateResult.passed is not true.`, "progress.json");

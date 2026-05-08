@@ -159,12 +159,28 @@ if (progress) {
 
   for (const section of activeSections) {
     if (section.status !== "done") {
-      fail(
-        failures,
-        "SECTION_NOT_DONE",
-        `Section "${section.name}" is ${section.status || "MISSING"}; final publishing requires every non-skipped section to be done.`,
-        "progress.json",
-      );
+      if (section.status === "iterating") {
+        fail(
+          failures,
+          "SECTION_G1_ITERATING",
+          `Section "${section.name}" is still in the G1 refinement loop${section.iteration?.latestL1 != null ? ` at L1 ${section.iteration.latestL1}%` : ""}; final publishing requires the loop to converge and gates to pass.`,
+          "progress.json",
+        );
+      } else if (section.status === "stalled") {
+        fail(
+          failures,
+          "SECTION_G1_STALLED",
+          `Section "${section.name}" G1 refinement stalled${section.iteration?.latestL1 != null ? ` at L1 ${section.iteration.latestL1}%` : ""}; inspect diff-triage before final publishing.`,
+          "progress.json",
+        );
+      } else {
+        fail(
+          failures,
+          "SECTION_NOT_DONE",
+          `Section "${section.name}" is ${section.status || "MISSING"}; final publishing requires every non-skipped section to be done.`,
+          "progress.json",
+        );
+      }
     }
 
     const qp = join(cwd, qualityPath(section.name));

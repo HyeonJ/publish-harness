@@ -65,16 +65,30 @@ const RULES = [
   },
   {
     code: 'SECTION_BLOCKED',
-    when: ({ progress }) => progress.sections.some((s) => s.needsHuman),
+    when: ({ progress }) => progress.sections.some((s) => s.status === 'stalled' || s.needsHuman),
     message: ({ progress }) => {
-      const s = progress.sections.find((x) => x.needsHuman);
+      const s = progress.sections.find((x) => x.status === 'stalled' || x.needsHuman);
+      if (s.status === 'stalled') {
+        const l1 = Number.isFinite(s.iteration?.latestL1) ? ` L1=${s.iteration.latestL1}%` : '';
+        return `섹션 '${s.name}' 의 G1 refinement loop가 정체됐습니다.${l1}`;
+      }
       return `섹션 '${s.name}' 이 ${s.retryCount}회 시도 후 needs_human 상태입니다.`;
     },
-    recommendations: () => [
-      'lastGateResult 확인 후 drift 분석',
-      '수동 수정 → progress-update set-section --status pending 으로 재시도',
-      '또는 progress-update set-section --status skipped (다음으로 넘기기)',
-    ],
+    recommendations: ({ progress }) => {
+      const s = progress.sections.find((x) => x.status === 'stalled' || x.needsHuman);
+      if (s?.status === 'stalled') {
+        return [
+          `node scripts/diff-triage.mjs --section ${s.name} --quality tests/quality/${s.name}.json`,
+          'micro-tuning을 멈추고 section split/rewrite 또는 harness diagnostic 보강 검토',
+          '수동 수정 후 progress-update set-section --status iterating 또는 pending 으로 재시도',
+        ];
+      }
+      return [
+        'lastGateResult 확인 후 drift 분석',
+        '수동 수정 → progress-update set-section --status pending 으로 재시도',
+        '또는 progress-update set-section --status skipped (다음으로 넘기기)',
+      ];
+    },
   },
   {
     code: 'OK_NEXT_PHASE',

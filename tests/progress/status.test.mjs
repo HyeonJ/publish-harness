@@ -40,3 +40,23 @@ test('aggregate detects uncommitted changes from gitStatus', () => {
   const s = aggregate({ progress: load('phase3-mid'), gitStatus: ' M src/components/sections/home/HomeHero.tsx', gateResults: {} });
   assert.equal(s.git.dirty, true);
 });
+
+test('aggregate exposes iterating sections as actionable and stalled sections as blockers', () => {
+  const fx = load('phase3-mid');
+  fx.sections[1].status = 'iterating';
+  fx.sections[1].iteration = { outcome: 'converging', latestL1: 12.5, attempts: 2 };
+  const iterating = aggregate({ progress: fx, gitStatus: '', gateResults: {} });
+  assert.equal(iterating.totals.iterating, 1);
+  assert.equal(iterating.totals.in_progress, 0);
+  assert.equal(iterating.nextActionable[0].name, 'home-features');
+  assert.equal(iterating.canProceed, true);
+
+  fx.sections[1].status = 'stalled';
+  fx.sections[1].needsHuman = true;
+  fx.sections[1].iteration = { outcome: 'stalled', latestL1: 12.1, attempts: 5 };
+  const stalled = aggregate({ progress: fx, gitStatus: '', gateResults: {} });
+  assert.equal(stalled.totals.stalled, 1);
+  assert.equal(stalled.totals.blocked, 0);
+  assert.equal(stalled.canProceed, false);
+  assert.equal(stalled.blockers[0].kind, 'g1_refinement_stalled');
+});

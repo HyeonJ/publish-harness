@@ -32,6 +32,127 @@ function readJsonFile(path) {
   return JSON.parse(readFileSync(path, "utf8"));
 }
 
+function readJsonFileOr(path, fallback) {
+  try {
+    return JSON.parse(readFileSync(path, "utf8"));
+  } catch {
+    return fallback;
+  }
+}
+
+function iterationFilePath(section, viewport) {
+  const safeSection = String(section || "section").replace(/[^A-Za-z0-9_.-]+/g, "_");
+  const safeViewport = String(viewport || "desktop").replace(/[^A-Za-z0-9_.-]+/g, "_");
+  return join("tests", "quality", "iterations", `${safeSection}-${safeViewport}.json`);
+}
+
+function compactL2(l2) {
+  if (!l2 || typeof l2 !== "object") return null;
+  return {
+    status: l2.status || null,
+    reason: l2.reason || null,
+    anchorsMatched: l2.anchorsMatched ?? null,
+    anchorsTotal: l2.anchorsTotal ?? null,
+    requiredMatched: l2.requiredMatched ?? null,
+    requiredTotal: l2.requiredTotal ?? null,
+    maxDeltaPx: l2.maxDeltaPx ?? null,
+    categories: l2.diagnostics?.categories || [],
+  };
+}
+
+function appendG1Iteration({ section, viewport, status, reason, l1, l2 }) {
+  const path = iterationFilePath(section, viewport);
+  const existing = readJsonFileOr(path, null);
+  const previousIterations = existing?.summary?.converged || existing?.summary?.outcome === "converged"
+    ? []
+    : Array.isArray(existing?.iterations)
+      ? existing.iterations
+      : [];
+  const entry = {
+    i: previousIterations.length,
+    section,
+    viewport,
+    status,
+    reason: reason || null,
+    l1: l1
+      ? {
+          status: l1.status || null,
+          reason: l1.reason || null,
+          diffPercent: l1.diffPercent ?? null,
+          thresholdEffective: l1.thresholdEffective ?? null,
+          thresholdTarget: l1.thresholdTarget ?? null,
+          targetGap: l1.targetGap ?? null,
+          diffPath: l1.diffPath || null,
+          sectionL1Failures: (l1.sectionL1Failures || []).slice(0, 5).map((item) => ({
+            sectionId: item.sectionId,
+            diffPercent: item.diffPercent,
+            diffPixels: item.diffPixels,
+            categories: item.categories || [],
+          })),
+        }
+      : null,
+    l2: compactL2(l2),
+    timestamp: new Date().toISOString(),
+  };
+  const iterations = [...previousIterations, entry];
+  const numeric = iterations
+    .map((item) => Number(item.l1?.diffPercent))
+    .filter((value) => Number.isFinite(value));
+  const latest = numeric.at(-1) ?? null;
+  const previous = numeric.length >= 2 ? numeric.at(-2) : null;
+  const improvement = latest != null && previous != null
+    ? Number((previous - latest).toFixed(3))
+    : null;
+  const monotonic = numeric.length <= 1 || numeric.every((value, index) => index === 0 || value <= numeric[index - 1]);
+  const stallThreshold = Number(process.env.G1_STALL_THRESHOLD || 0.5);
+  const maxIterations = Number(process.env.G1_MAX_ITERATIONS || 5);
+  const recent = numeric.slice(-4);
+  const recentImprovements = recent.length >= 4
+    ? [recent[0] - recent[1], recent[1] - recent[2], recent[2] - recent[3]]
+    : [];
+  const targetGap = Number(entry.l1?.targetGap ?? Infinity);
+  const converged = status === "PASS" && Number.isFinite(targetGap) && targetGap <= 0 && (entry.l2?.status === "PASS" || !entry.l2);
+  const stalled = !converged && recentImprovements.length === 3 && recentImprovements.every((value) => value < stallThreshold);
+  const regressed = !converged && improvement != null && improvement < -stallThreshold;
+  const abandoned = !converged && iterations.length >= maxIterations && (stalled || regressed);
+  const outcome = converged
+    ? "converged"
+    : stalled
+      ? "stalled"
+      : regressed
+        ? "regressed"
+        : improvement != null && improvement >= stallThreshold
+          ? "converging"
+          : abandoned
+            ? "abandoned"
+            : "iterating";
+  const summary = {
+    currentIteration: entry.i,
+    attempts: iterations.length,
+    latestL1: latest,
+    previousL1: previous,
+    improvement,
+    monotonic,
+    stallThreshold,
+    maxIterations,
+    recentImprovements: recentImprovements.map((value) => Number(value.toFixed(3))),
+    outcome,
+    stalled,
+    regressed,
+    converged,
+    abandoned,
+  };
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, JSON.stringify({
+    section,
+    viewport,
+    updatedAt: entry.timestamp,
+    summary,
+    iterations,
+  }, null, 2) + "\n", "utf8");
+  return { path, ...summary };
+}
+
 // B-1b: PNG nearest-neighbor resize (sharp 의존성 없이). pngjs RGBA buffer 직접 조작.
 // 정밀도 < bilinear 단 % budget 안에서 흡수. dimension mismatch normalize 용.
 let _PNG_CONSTRUCTOR;
@@ -2099,18 +2220,37 @@ async function runLite() {
   const diffPath = join(opts["diff-dir"], `${opts.section}-${opts.viewport}.diff.png`);
   writeFileSync(diffPath, PNG.sync.write(diff));
   const pass = dpct <= opts["threshold-l1"];
-  console.log(JSON.stringify({
-    section: opts.section,
-    viewport: opts.viewport,
+  const l1 = {
     status: pass ? "PASS" : "FAIL",
+    reason: pass ? null : `L1 ${dpct.toFixed(2)}% > ${opts["threshold-l1"]}%`,
     diffPercent: Number(dpct.toFixed(3)),
-    threshold: opts["threshold-l1"],
     thresholdEffective: opts["threshold-l1"],
     thresholdTarget: opts["threshold-l1-target"],
     enforcingTarget: process.env.G1_ENFORCE_L1_TARGET === "1",
     targetGap: Number(Math.max(0, dpct - opts["threshold-l1-target"]).toFixed(3)),
     diffPath,
+  };
+  const iteration = appendG1Iteration({
+    section: opts.section,
+    viewport: opts.viewport,
+    status: pass ? "PASS" : "FAIL",
+    reason: l1.reason,
+    l1,
+    l2: null,
+  });
+  console.log(JSON.stringify({
+    section: opts.section,
+    viewport: opts.viewport,
+    status: pass ? "PASS" : "FAIL",
+    diffPercent: l1.diffPercent,
+    threshold: l1.thresholdEffective,
+    thresholdEffective: l1.thresholdEffective,
+    thresholdTarget: l1.thresholdTarget,
+    enforcingTarget: l1.enforcingTarget,
+    targetGap: l1.targetGap,
+    diffPath: l1.diffPath,
     baseline: baselinePath,
+    iteration,
   }));
   process.exit(pass ? 0 : 1);
 }
@@ -2777,15 +2917,33 @@ async function evaluateViewport(browser, plan, url) {
       sectionL1Failures: l2?.diagnostics?.sectionL1Failures || [],
     };
     const overallFail = l1.status === "FAIL" || l2.status === "FAIL";
+    const iteration = appendG1Iteration({
+      section: opts.section,
+      viewport,
+      status: overallFail ? "FAIL" : "PASS",
+      reason: overallFail ? (l1.status === "FAIL" ? l1.reason : l2.reason) : null,
+      l1,
+      l2,
+    });
     return {
       viewport,
       status: overallFail ? "FAIL" : "PASS",
       reason: overallFail ? (l1.status === "FAIL" ? l1.reason : l2.reason) : null,
       l1,
       l2,
+      iteration,
     };
   } catch (e) {
-    return { viewport, status: "FAIL", reason: `평가 실패 (${e.message.split("\n")[0]})` };
+    const reason = `평가 실패 (${e.message.split("\n")[0]})`;
+    const iteration = appendG1Iteration({
+      section: opts.section,
+      viewport,
+      status: "FAIL",
+      reason,
+      l1: null,
+      l2: null,
+    });
+    return { viewport, status: "FAIL", reason, iteration };
   } finally {
     await ctx.close().catch(() => {});
   }

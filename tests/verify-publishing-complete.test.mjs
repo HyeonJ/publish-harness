@@ -120,6 +120,25 @@ test("fails when a page or section is not done even if implementation files exis
   assert.match(result.stdout, /SECTION_NOT_DONE/);
 });
 
+test("fails with explicit G1 iterating/stalled section codes", () => {
+  const iteratingCwd = makeProject({ pageStatus: "in_progress", sectionStatus: "iterating" });
+  let progress = JSON.parse(readFileSync(join(iteratingCwd, "progress.json"), "utf8"));
+  progress.sections[0].iteration = { outcome: "converging", latestL1: 12.5, attempts: 2 };
+  writeFileSync(join(iteratingCwd, "progress.json"), JSON.stringify(progress, null, 2) + "\n", "utf8");
+  const iterating = runVerifier(iteratingCwd);
+  assert.notEqual(iterating.status, 0);
+  assert.match(iterating.stdout, /SECTION_G1_ITERATING/);
+
+  const stalledCwd = makeProject({ pageStatus: "blocked", sectionStatus: "stalled" });
+  progress = JSON.parse(readFileSync(join(stalledCwd, "progress.json"), "utf8"));
+  progress.sections[0].needsHuman = true;
+  progress.sections[0].iteration = { outcome: "stalled", latestL1: 12.1, attempts: 5 };
+  writeFileSync(join(stalledCwd, "progress.json"), JSON.stringify(progress, null, 2) + "\n", "utf8");
+  const stalled = runVerifier(stalledCwd);
+  assert.notEqual(stalled.status, 0);
+  assert.match(stalled.stdout, /SECTION_G1_STALLED/);
+});
+
 test("fails when scaffold placeholder remains", () => {
   const cwd = makeProject({ placeholder: true });
   const result = runVerifier(cwd);

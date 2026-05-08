@@ -77,9 +77,22 @@ test('setSectionStatus updates status', () => {
   assert.equal(obj.sections[0].status, 'done');
 });
 
+test('setSectionStatus accepts G1 refinement statuses', () => {
+  const obj = createEmpty({ name: 'x', mode: 'figma', template: 'vite-react-ts' });
+  addPage(obj, { name: 'home', nodeId: '1:1' });
+  addSection(obj, { name: 'home', page: 'home', kind: 'section' });
+  setSectionStatus(obj, 'home', 'iterating');
+  assert.equal(obj.sections[0].status, 'iterating');
+  assert.equal(obj.pages[0].status, 'in_progress');
+  setSectionStatus(obj, 'home', 'stalled');
+  assert.equal(obj.sections[0].status, 'stalled');
+  assert.equal(obj.pages[0].status, 'blocked');
+});
+
 test('recordGateResult appends failureHistory and increments retryCount on FAIL', () => {
   const obj = createEmpty({ name: 'x', mode: 'spec', template: 'vite-react-ts' });
   addSection(obj, { name: 'Button', page: null, kind: 'component' });
+  obj.sections[0].iteration = { outcome: 'converging', latestL1: 10.5 };
   recordGateResult(obj, 'Button', {
     passed: false,
     gates: { G4: 'FAIL' },
@@ -87,6 +100,7 @@ test('recordGateResult appends failureHistory and increments retryCount on FAIL'
   });
   const s = obj.sections[0];
   assert.equal(s.retryCount, 1);
+  assert.equal(s.iteration, undefined);
   assert.equal(s.failureHistory.length, 1);
   assert.deepEqual(s.failureHistory[0].categories, ['TOKEN_DRIFT']);
   assert.equal(s.lastGateResult.passed, false);
@@ -96,9 +110,11 @@ test('recordGateResult on PASS sets status=done and clears needsHuman', () => {
   const obj = createEmpty({ name: 'x', mode: 'spec', template: 'vite-react-ts' });
   addSection(obj, { name: 'Button', page: null, kind: 'component' });
   obj.sections[0].needsHuman = true;
+  obj.sections[0].iteration = { outcome: 'iterating', latestL1: 12.3 };
   recordGateResult(obj, 'Button', { passed: true, gates: { G4: 'PASS' }, failures: [] });
   assert.equal(obj.sections[0].status, 'done');
   assert.equal(obj.sections[0].needsHuman, undefined);
+  assert.equal(obj.sections[0].iteration, undefined);
 });
 
 // ---- A.7 measure-quality 어댑터 테스트 -----------------------------------
@@ -154,6 +170,120 @@ test('recordGateResultAuto routes measure-quality format to adapter', () => {
   assert.equal(s.retryCount, 1);
   assert.equal(s.status, 'in_progress');
   assert.deepEqual(s.failureHistory[0].categories, ['TOKEN_DRIFT']);
+});
+
+test('recordGateResultAuto marks G1-only failures as iterating', () => {
+  const obj = createEmpty({ name: 'x', mode: 'figma', template: 'vite-react-ts' });
+  addPage(obj, { name: 'home', nodeId: '1:1' });
+  addSection(obj, { name: 'home', page: 'home', kind: 'section' });
+  recordGateResultAuto(obj, 'home', {
+    section: 'home',
+    viewport: 'desktop',
+    G1_status: 'FAIL',
+    G4_token_usage: 'PASS',
+    G5_semantic_html: 'PASS',
+    G6_text_image_ratio: 'PASS',
+    G8_i18n: 'PASS',
+    G10_write_protection: 'PASS',
+    G11_layout_escapes: 'PASS',
+    G12_reusability: 'PASS',
+    G1_visual_regression: {
+      status: 'FAIL',
+      viewports: {
+        desktop: {
+          viewport: 'desktop',
+          status: 'FAIL',
+          iteration: {
+            outcome: 'converging',
+            attempts: 2,
+            latestL1: 14.2,
+            previousL1: 18,
+            improvement: 3.8,
+            monotonic: true,
+            stalled: false,
+            regressed: false,
+            path: 'tests/quality/iterations/home-desktop.json',
+          },
+        },
+      },
+    },
+  });
+  const s = obj.sections[0];
+  assert.equal(s.status, 'iterating');
+  assert.equal(s.retryCount, 0);
+  assert.equal(obj.pages[0].status, 'in_progress');
+  assert.equal(s.iteration.latestL1, 14.2);
+  assert.equal(s.iteration.outcome, 'converging');
+});
+
+test('recordGateResultAuto handles flat lite-mode G1 iteration output', () => {
+  const obj = createEmpty({ name: 'x', mode: 'figma', template: 'vite-react-ts' });
+  addPage(obj, { name: 'home', nodeId: '1:1' });
+  addSection(obj, { name: 'home', page: 'home', kind: 'section' });
+  recordGateResultAuto(obj, 'home', {
+    section: 'home',
+    viewport: 'desktop',
+    G1_status: 'FAIL',
+    G4_token_usage: 'PASS',
+    G5_semantic_html: 'PASS',
+    G6_text_image_ratio: 'PASS',
+    G8_i18n: 'PASS',
+    G10_write_protection: 'PASS',
+    G11_layout_escapes: 'PASS',
+    G12_reusability: 'PASS',
+    G1_visual_regression: {
+      status: 'FAIL',
+      viewport: 'desktop',
+      iteration: {
+        outcome: 'iterating',
+        attempts: 1,
+        latestL1: 22.5,
+      },
+    },
+  });
+  assert.equal(obj.sections[0].status, 'iterating');
+  assert.equal(obj.sections[0].iteration.latestL1, 22.5);
+});
+
+test('recordGateResultAuto marks stalled G1-only failures as stalled', () => {
+  const obj = createEmpty({ name: 'x', mode: 'figma', template: 'vite-react-ts' });
+  addPage(obj, { name: 'home', nodeId: '1:1' });
+  addSection(obj, { name: 'home', page: 'home', kind: 'section' });
+  recordGateResultAuto(obj, 'home', {
+    section: 'home',
+    viewport: 'desktop',
+    G1_status: 'FAIL',
+    G4_token_usage: 'PASS',
+    G5_semantic_html: 'PASS',
+    G6_text_image_ratio: 'PASS',
+    G8_i18n: 'PASS',
+    G10_write_protection: 'PASS',
+    G11_layout_escapes: 'PASS',
+    G12_reusability: 'PASS',
+    G1_visual_regression: {
+      status: 'FAIL',
+      viewports: {
+        desktop: {
+          viewport: 'desktop',
+          status: 'FAIL',
+          iteration: {
+            outcome: 'stalled',
+            attempts: 5,
+            latestL1: 12.1,
+            previousL1: 12.3,
+            improvement: 0.2,
+            monotonic: true,
+            stalled: true,
+          },
+        },
+      },
+    },
+  });
+  const s = obj.sections[0];
+  assert.equal(s.status, 'stalled');
+  assert.equal(s.needsHuman, true);
+  assert.equal(s.retryCount, 0);
+  assert.equal(obj.pages[0].status, 'blocked');
 });
 
 test('recordGateResultAuto preserves standard format passthrough', () => {

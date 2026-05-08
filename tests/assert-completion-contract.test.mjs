@@ -130,3 +130,17 @@ test("fails when progress is not done", () => {
   assert.match(result.stdout, /PAGE_NOT_DONE/);
   assert.match(result.stdout, /SECTION_NOT_DONE/);
 });
+
+test("fails with explicit G1 refinement contract failures", () => {
+  const cwd = makeProject({ pageStatus: "in_progress", sectionStatus: "iterating" });
+  const progressPath = join(cwd, "progress.json");
+  const progress = JSON.parse(readFileSync(progressPath, "utf8"));
+  progress.sections[0].iteration = { outcome: "converging", latestL1: 11.8, attempts: 3 };
+  writeFileSync(progressPath, JSON.stringify(progress, null, 2) + "\n", "utf8");
+
+  const result = run(cwd);
+  assert.notEqual(result.status, 0);
+  assert.match(result.stdout, /SECTION_G1_ITERATING/);
+  const sentinel = JSON.parse(readFileSync(join(cwd, ".publish-harness", "INCOMPLETE.json"), "utf8"));
+  assert.ok(sentinel.failures.some((failure) => failure.code === "SECTION_G1_ITERATING"));
+});

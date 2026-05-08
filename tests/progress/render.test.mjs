@@ -30,6 +30,20 @@ test('render lists sections with status icons', () => {
   assert.match(md, /- \[!\] home-cta.*needs human/i);
 });
 
+test('render shows G1 refinement iteration metadata', () => {
+  const withIteration = structuredClone(fx);
+  withIteration.sections[1].status = 'iterating';
+  withIteration.sections[1].iteration = {
+    outcome: 'converging',
+    latestL1: 12.4,
+    improvement: 2.1,
+    attempts: 3,
+  };
+  const md = render(withIteration);
+  assert.match(md, /- \[>\] home-features/);
+  assert.match(md, /G1 converging, L1 12\.4%, improvement 2\.1%, attempts 3/);
+});
+
 test('render shows fixture date in footer', () => {
   const md = render(fx);
   assert.match(md, /updated: 2026-04-30/);

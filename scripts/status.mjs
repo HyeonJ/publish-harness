@@ -11,13 +11,23 @@ export function aggregate({ progress, gitStatus = '', gateResults = {} }) {
     done: sections.filter((s) => s.status === 'done').length,
     pending: sections.filter((s) => s.status === 'pending').length,
     in_progress: sections.filter((s) => s.status === 'in_progress').length,
-    blocked: sections.filter((s) => s.status === 'blocked' || s.needsHuman).length,
+    iterating: sections.filter((s) => s.status === 'iterating').length,
+    stalled: sections.filter((s) => s.status === 'stalled').length,
+    blocked: sections.filter((s) => s.status === 'blocked' || (s.needsHuman && s.status !== 'stalled')).length,
     skipped: sections.filter((s) => s.status === 'skipped').length,
   };
 
   const blockers = [];
   for (const s of sections) {
-    if (s.status === 'blocked' || s.needsHuman) {
+    if (s.status === 'stalled') {
+      blockers.push({
+        kind: 'g1_refinement_stalled',
+        section: s.name,
+        retryCount: s.retryCount,
+        iteration: s.iteration || null,
+        lastCategories: s.failureHistory.at(-1)?.categories || [],
+      });
+    } else if (s.status === 'blocked' || s.needsHuman) {
       blockers.push({
         kind: 'section_blocked',
         section: s.name,
@@ -35,7 +45,7 @@ export function aggregate({ progress, gitStatus = '', gateResults = {} }) {
     blockers.push({ kind: 'missing_token_source', message: 'figma 모드인데 fileKey 없음 → bootstrap 미완' });
   }
 
-  const nextActionable = sections.filter((s) => s.status === 'pending' || s.status === 'in_progress');
+  const nextActionable = sections.filter((s) => s.status === 'pending' || s.status === 'in_progress' || s.status === 'iterating');
 
   // phase recommendation
   let recommendedPhase = progress.phase.current;
@@ -88,7 +98,7 @@ if (process.argv[1] && process.argv[1].endsWith('status.mjs')) {
     // human-readable summary
     const p = result.project;
     console.log(`📍 ${p.name} [${p.mode}/${p.template}]  Phase ${result.phase.current} (recommended: ${result.recommendedPhase})`);
-    console.log(`   섹션: ${result.totals.done}/${result.totals.sections} done · ${result.totals.in_progress} in-progress · ${result.totals.blocked} blocked`);
+    console.log(`   섹션: ${result.totals.done}/${result.totals.sections} done · ${result.totals.in_progress} in-progress · ${result.totals.iterating} iterating · ${result.totals.stalled} stalled · ${result.totals.blocked} blocked`);
     if (result.blockers.length) {
       console.log(`   ⚠ blockers:`);
       for (const b of result.blockers) console.log(`     - ${b.kind}${b.section ? `: ${b.section}` : ''}`);
